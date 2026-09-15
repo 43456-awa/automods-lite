@@ -4,11 +4,11 @@ window.NF_CHAPTERS = [
     id: "env",
     title: "环境与版本",
     short: "环境与版本",
-    lead: "先把工具链钉死：JDK 21、IntelliJ IDEA、NeoForge 1.21.1 MDK。版本不对，后面全是玄学错误。",
+    lead: "零基础也能跟：先装好 Java 和 IDEA，再导入官方空工程。版本对了，后面才不会一堆玄学报错。",
     tags: ["JDK 21", "IDEA", "NeoForge 1.21.1", "PCL2"],
     body: `
-<h2>你将得到什么</h2>
-<p>本教程按 <strong>NeoForge 1.21.1</strong> 写。它是目前最稳、文档最全的线之一；你后面若升 1.21.4+，大体概念仍通用，但 API 细节会变，别混着抄。</p>
+<h2>这一章在干嘛？</h2>
+<p>写模组和做菜一样：先备好灶具（JDK）、案板（IDEA）、菜谱骨架（MDK）。备齐了，后面注册物品、方块才不会一上来就红字。</p>
 
 <div class="tag-row">
   <span class="tag ok">Minecraft 1.21.1</span>
@@ -17,8 +17,13 @@ window.NF_CHAPTERS = [
   <span class="tag">Gradle 8.8+</span>
 </div>
 
+<div class="note">
+  <div class="note-title">为什么固定 1.21.1？</div>
+  <p>教程、代码示例都按这一版写。你若用别的小版本，概念大多通用，但 API 名字可能对不上，新手容易懵。先跟完本教程，再升版本。</p>
+</div>
+
 <h2>1. 安装 JDK 21</h2>
-<p>Minecraft 1.20.5 起官方要求 Java 21。用 17 或 8 会直接启动失败或编译报「class file has wrong version」。</p>
+<p>JDK 就是「能编译、运行 Java 的工具包」。MC 1.20.5 起官方要求 Java 21；装 8 或 17 会直接启动失败，或编译报 class file has wrong version。</p>
 
 <ol class="steps">
   <li>

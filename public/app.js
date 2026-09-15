@@ -516,6 +516,25 @@
     });
   }
 
+  const CW_TO_HISTORY = {
+    "16k": 12,
+    "32k": 24,
+    "64k": 36,
+    "128k": 64,
+    "200k": 96,
+    "1m": 160,
+  };
+
+  function historyToContextWindow(n) {
+    const h = Number(n) || 36;
+    if (h <= 16) return "16k";
+    if (h <= 28) return "32k";
+    if (h <= 40) return "64k";
+    if (h <= 80) return "128k";
+    if (h <= 120) return "200k";
+    return "1m";
+  }
+
   async function loadSettings() {
     try {
       const res = await fetch("/api/config");
@@ -533,7 +552,9 @@
       if (f.topP) f.topP.value = cfg.topP ?? 1;
       if (f.maxTokens) f.maxTokens.value = cfg.maxTokens ?? 8192;
       if (f.reasoningEffort) f.reasoningEffort.value = cfg.reasoningEffort || "off";
+      if (f.reasoningStyle) f.reasoningStyle.value = cfg.reasoningStyle || "auto";
       if (f.historyLimit) f.historyLimit.value = cfg.historyLimit ?? 36;
+      if (f.contextWindow) f.contextWindow.value = historyToContextWindow(cfg.historyLimit ?? 36);
       if (f.apiTimeoutSec) f.apiTimeoutSec.value = cfg.apiTimeoutSec ?? 180;
       f.apiKey.value = "";
       els.keyHint.textContent = cfg.apiKeySet
@@ -571,8 +592,68 @@
       setMode("bench");
       startNewChat();
     };
-    $("btnSettings").onclick = openSettings;
-    $("btnSettings2").onclick = openSettings;
+    $("btnSettings").onclick = () => {
+      openSettings();
+      const f = els.settingsForm;
+      if (f.contextWindow && f.historyLimit && !f.contextWindow.dataset.wired) {
+        f.contextWindow.dataset.wired = "1";
+        f.contextWindow.addEventListener("change", () => {
+          f.historyLimit.value = String(CW_TO_HISTORY[f.contextWindow.value] || 36);
+        });
+      }
+    };
+    $("btnSettings2").onclick = () => $("btnSettings").click();
+
+    const btnModels = $("btnFetchModels");
+    const modelList = $("modelList");
+    if (btnModels && modelList) {
+      btnModels.onclick = async () => {
+        const f = els.settingsForm;
+        const baseUrl = f.baseUrl.value.trim();
+        const apiKey = f.apiKey.value.trim();
+        btnModels.disabled = true;
+        btnModels.textContent = "获取中…";
+        modelList.hidden = false;
+        modelList.innerHTML = '<div class="empty">正在请求上游 /models…</div>';
+        try {
+          const res = await fetch("/api/models", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              baseUrl,
+              // 表单里新填的 Key 优先；否则用已保存的
+              ...(apiKey ? { apiKey } : {}),
+              model: f.model.value.trim(),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          const models = data.models || [];
+          if (!models.length) {
+            modelList.innerHTML = '<div class="empty">上游没有返回模型列表</div>';
+            return;
+          }
+          modelList.textContent = "";
+          for (const id of models) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.textContent = id;
+            b.title = `填入 ${id}`;
+            b.onclick = () => {
+              f.model.value = id;
+              toast(`已选择 ${id}`);
+            };
+            modelList.appendChild(b);
+          }
+          toast(`共 ${models.length} 个模型`);
+        } catch (e) {
+          modelList.innerHTML = `<div class="empty">${escapeHtml(e.message || String(e))}</div>`;
+        } finally {
+          btnModels.disabled = false;
+          btnModels.textContent = "获取列表";
+        }
+      };
+    }
 
     const btnUpd = $("btnCheckUpdate");
     if (btnUpd) {
@@ -740,10 +821,16 @@
         if (m > 0) payload.maxTokens = m;
       }
       if (f.reasoningEffort) payload.reasoningEffort = f.reasoningEffort.value || "off";
-      if (f.historyLimit) {
-        const h = parseInt(f.historyLimit.value, 10);
-        if (h > 0) payload.historyLimit = h;
+      if (f.reasoningStyle) payload.reasoningStyle = f.reasoningStyle.value || "auto";
+      // 优先：高级里手填的 historyLimit；否则按上下文窗口下拉换算
+      let history = 0;
+      if (f.historyLimit && f.historyLimit.value) {
+        history = parseInt(f.historyLimit.value, 10) || 0;
       }
+      if (!history && f.contextWindow) {
+        history = CW_TO_HISTORY[f.contextWindow.value] || 36;
+      }
+      if (history > 0) payload.historyLimit = history;
       if (f.apiTimeoutSec) {
         const s = parseInt(f.apiTimeoutSec.value, 10);
         if (s > 0) payload.apiTimeoutSec = s;

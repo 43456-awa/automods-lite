@@ -43,8 +43,10 @@ const DEFAULT_CONFIG = {
   temperature: 0.4,
   topP: 1,
   maxTokens: 8192,
-  // off | low | medium | high — 有对应 API 才透传（OpenAI reasoning_effort 等）
+  // off | low | medium | high
   reasoningEffort: 'off',
+  // auto | openai | qwen | gemini | none — 思考参数映射到哪种上游字段
+  reasoningStyle: 'auto',
   // 发给上游时最多带多少条历史消息（控制上下文占用；真正窗口大小由模型决定）
   historyLimit: 36,
   // 上游 chat/completions 超时（秒）
@@ -481,6 +483,54 @@ function tail(s, n) {
 }
 
 /* ---------------- OpenAI streaming (shared) ---------------- */
+function detectReasoningStyle(cfg) {
+  const explicit = String(cfg.reasoningStyle || 'auto').toLowerCase();
+  if (explicit && explicit !== 'auto') return explicit;
+  const base = String(cfg.baseUrl || '').toLowerCase();
+  const model = String(cfg.model || '').toLowerCase();
+  if (/qwen|dashscope|aliyun/.test(base) || model.startsWith('qwen')) return 'qwen';
+  if (/generativelanguage|gemini/.test(base) || model.includes('gemini')) return 'gemini';
+  if (/deepseek/.test(base) && model.includes('reasoner')) return 'none'; // R1 用模型名即可
+  if (effortOff(cfg)) return 'none';
+  return 'openai';
+}
+
+function effortOff(cfg) {
+  const e = String(cfg.reasoningEffort || 'off').toLowerCase();
+  return !e || e === 'off';
+}
+
+/** 把 off/low/medium/high 映射到各家上游字段 */
+function applyReasoning(body, cfg) {
+  const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
+  if (!effort || effort === 'off') return;
+  const style = detectReasoningStyle(cfg);
+
+  if (style === 'none') return;
+
+  if (style === 'qwen') {
+    // DashScope / 通义：enable_thinking + thinking_budget（约）
+    body.enable_thinking = true;
+    const budget = { low: 512, medium: 2048, high: 8192, xhigh: 16384, max: 32768 }[effort] || 2048;
+    body.thinking_budget = budget;
+    // 部分网关还要这个
+    body.chat_template_kwargs = { enable_thinking: true };
+    return;
+  }
+
+  if (style === 'gemini') {
+    // Gemini OpenAI 兼容层 / 原生风格字段（尽量兼容）
+    body.reasoning_effort = effort;
+    body.thinkingConfig = {
+      thinkingBudget: { low: 512, medium: 2048, high: 8192 }[effort] || 2048,
+    };
+    return;
+  }
+
+  // openai 及大多数中转
+  body.reasoning_effort = effort;
+}
+
 function buildChatBody(cfg, messages, tools) {
   const temperature = Number(cfg.temperature);
   const topP = Number(cfg.topP);
@@ -501,12 +551,37 @@ function buildChatBody(cfg, messages, tools) {
     body.tools = tools;
     body.tool_choice = 'auto';
   }
-  const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
-  if (effort && effort !== 'off') {
-    // OpenAI o系列 / 部分中转；不认识的服务端通常忽略或报错，报错会原样抛出
-    body.reasoning_effort = effort;
-  }
+  applyReasoning(body, cfg);
   return body;
+}
+
+/** 拉上游 /models */
+export async function fetchModelList(cfg) {
+  const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
+  if (!base) throw new Error('未配置 baseUrl');
+  if (!cfg.apiKey || cfg.apiKey.startsWith('sk-在这里')) throw new Error('未配置 apiKey');
+  const url = `${base}/models`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${cfg.apiKey}`,
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`上游 /models ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const arr = Array.isArray(data?.data) ? data.data
+    : Array.isArray(data?.models) ? data.models
+    : Array.isArray(data) ? data : [];
+  const ids = arr
+    .map((m) => (typeof m === 'string' ? m : m?.id || m?.name || ''))
+    .filter(Boolean)
+    .map(String);
+  const uniq = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  return uniq;
 }
 
 function withTimeoutSignal(signal, sec) {
@@ -806,6 +881,19 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/health') {
       json(res, 200, { ok: true, workspace: WORKSPACE, version: LOCAL_VERSION });
+      return;
+    }
+
+    if (p === '/api/models' && req.method === 'POST') {
+      const cfg = loadConfig();
+      const body = await readJson(req);
+      const merged = { ...cfg, ...body };
+      try {
+        const models = await fetchModelList(merged);
+        json(res, 200, { models, count: models.length });
+      } catch (e) {
+        json(res, 502, { error: String(e.message || e) });
+      }
       return;
     }
 

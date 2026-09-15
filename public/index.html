@@ -154,10 +154,12 @@
         <button type="button" class="btn btn-icon-only" id="btnCloseGen">×</button>
       </header>
       <form id="genForm">
+        <div class="form-scroll">
         <label>想学什么主题？
           <textarea id="genTopic" rows="3" placeholder="例如：怎么生成自定义群系 / 怎么做自定义生物 AI / 数据包战利品表"></textarea>
         </label>
         <div id="genStatus" class="gen-status" hidden></div>
+        </div>
         <footer>
           <button type="button" class="btn btn-ghost" id="btnCancelGen">取消</button>
           <button type="submit" class="btn btn-primary" id="btnStartGen">生成</button>
@@ -174,6 +176,7 @@
         <button type="button" class="btn btn-icon-only" id="btnCloseSettings">×</button>
       </header>
       <form id="settingsForm">
+        <div class="form-scroll">
         <label>Base URL
           <input name="baseUrl" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
         </label>
@@ -182,7 +185,10 @@
           <small id="keyHint"></small>
         </label>
         <label>模型
-          <input name="model" id="modelInput" placeholder="deepseek-chat" autocomplete="off" list="modelPresets" />
+          <div class="row-inline">
+            <input name="model" id="modelInput" placeholder="deepseek-chat" autocomplete="off" list="modelPresets" />
+            <button type="button" class="btn btn-ghost" id="btnFetchModels">获取列表</button>
+          </div>
           <datalist id="modelPresets">
             <option value="deepseek-chat">DeepSeek 对话（便宜快）</option>
             <option value="deepseek-reasoner">DeepSeek 思考（R1）</option>
@@ -191,36 +197,66 @@
             <option value="qwen-plus">通义千问</option>
             <option value="glm-4-flash">智谱 GLM</option>
           </datalist>
-          <small class="hint-line">可手输任意模型名；下拉只是常用预设。上下文窗口大小取决于该模型（64k / 128k / 1M…）。</small>
+          <div class="model-list" id="modelList" hidden></div>
+          <small class="hint-line">「获取列表」会请求你配置的上游 <code>/models</code>，点名称即填入。</small>
         </label>
-        <div class="grid3">
-          <label>温度
-            <input name="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.4" />
-          </label>
-          <label>top_p
-            <input name="topP" type="number" step="0.05" min="0" max="1" placeholder="1" />
-          </label>
-          <label>最大输出 tokens
-            <input name="maxTokens" type="number" min="256" max="131072" placeholder="8192" />
-          </label>
-        </div>
-        <div class="grid3">
-          <label>思考强度
+        <div class="grid2">
+          <label>推理强度
             <select name="reasoningEffort">
               <option value="off">关闭</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
             </select>
+            <small class="hint-line">会映射到上游思考参数；不支持的模型请选「关闭」。</small>
           </label>
-          <label>历史条数
-            <input name="historyLimit" type="number" min="8" max="200" placeholder="36" />
+          <label>上下文窗口
+            <select name="contextWindow">
+              <option value="16k">约 16k（省 token）</option>
+              <option value="32k">约 32k</option>
+              <option value="64k" selected>约 64k</option>
+              <option value="128k">约 128k</option>
+              <option value="200k">约 200k</option>
+              <option value="1m">约 1M</option>
+            </select>
+            <small class="hint-line">控制每次带多少旧对话；真正上限由模型决定。</small>
           </label>
+        </div>
+
+        <details class="adv-block">
+          <summary>高级参数（可选）</summary>
+          <div class="grid3">
+            <label>温度
+              <input name="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.4" />
+            </label>
+            <label>top_p
+              <input name="topP" type="number" step="0.05" min="0" max="1" placeholder="1" />
+            </label>
+            <label>最大输出 tokens
+              <input name="maxTokens" type="number" min="256" max="131072" placeholder="8192" />
+            </label>
+          </div>
+          <div class="grid2">
+            <label>思考字段映射
+              <select name="reasoningStyle">
+                <option value="auto">自动识别</option>
+                <option value="openai">OpenAI reasoning_effort</option>
+                <option value="qwen">通义 enable_thinking</option>
+                <option value="gemini">Gemini thinking</option>
+                <option value="none">不发送</option>
+              </select>
+            </label>
+            <label>历史条数（覆盖窗口）
+              <input name="historyLimit" type="number" min="8" max="400" placeholder="36" />
+            </label>
+          </div>
           <label>上游超时（秒）
             <input name="apiTimeoutSec" type="number" min="15" max="600" placeholder="180" />
           </label>
-        </div>
-        <p class="hint-line">历史条数只控制每次带多少旧消息，不是窗口上限。思考强度会传 <code>reasoning_effort</code>，不支持的模型请改回「关闭」；DeepSeek R1 会尽量把思考过程显示在状态里。</p>
+        </details>
+
         <div class="grid2">
           <label>modId
             <input name="modId" placeholder="mymod" autocomplete="off" />
@@ -243,7 +279,8 @@
             <input name="gradleTimeoutSec" type="number" min="30" max="900" placeholder="180" />
           </label>
         </div>
-        <p class="note">Key 只写在本机 <code>config.json</code>。思考强度会尝试传 <code>reasoning_effort</code>，不支持的模型/中转可能忽略或报错，报错就改回「关闭」。</p>
+        <p class="note">Key 只写在本机 <code>config.json</code>。</p>
+        </div>
         <footer>
           <button type="button" class="btn btn-ghost" id="btnCancelSettings">取消</button>
           <button type="submit" class="btn btn-primary">保存</button>

@@ -469,6 +469,14 @@
       els.askInput.value = "";
       askQuestion(q);
     };
+
+    // 回车发送，Shift+回车换行（与工作台输入框一致）
+    els.askInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        els.askForm.requestSubmit();
+      }
+    });
   }
 
   window.NFLearnInit = async function initLearn() {
