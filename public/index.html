@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>automods-lite · 学习 + 工作台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">◆</div>
+        <div>
+          <div class="brand-title">automods-lite</div>
+          <div class="brand-sub">学习 + 工作台 · v0.3</div>
+        </div>
+      </div>
+
+      <div class="mode-switch" role="tablist">
+        <button type="button" class="mode-btn is-active" data-mode="learn" role="tab" aria-selected="true">学习</button>
+        <button type="button" class="mode-btn" data-mode="bench" role="tab" aria-selected="false">工作台</button>
+      </div>
+
+      <!-- 学习侧栏 -->
+      <div class="side-panel" id="learnSide">
+        <button type="button" class="btn btn-primary btn-block" id="btnGenChapter">＋ AI 生成章节</button>
+        <div class="section-label">课程</div>
+        <div class="track-list" id="trackList"></div>
+        <div class="sidebar-foot">
+          <button type="button" class="btn btn-ghost btn-block" id="btnChecker">⌘ 代码体检</button>
+          <button type="button" class="btn btn-ghost btn-block" id="btnSettings">⚙ API 设置</button>
+        </div>
+      </div>
+
+      <!-- 工作台侧栏 -->
+      <div class="side-panel" id="benchSide" hidden>
+        <button type="button" class="btn btn-primary btn-block" id="btnNew">＋ 新建对话</button>
+        <div class="section-label">历史</div>
+        <div class="chat-list" id="chatList"></div>
+        <div class="sidebar-foot">
+          <button type="button" class="btn btn-ghost btn-block" id="btnSettings2">⚙ API 设置</button>
+          <p class="foot-note">独立工程 · workspace/projects/</p>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button type="button" class="btn btn-icon-only" id="btnMenu" aria-label="菜单">☰</button>
+        <div class="topbar-title" id="pageTitle">NeoForge 模组</div>
+        <small class="project-label" id="projectLabel"></small>
+        <span class="run-flag" id="runFlag">空闲</span>
+        <span class="grow"></span>
+        <button type="button" class="btn btn-ghost" id="btnCheckUpdate" title="检查 GitHub 新版本">检查更新</button>
+        <button type="button" class="btn btn-ghost" id="btnClearHistory" hidden title="清理对话历史">清历史</button>
+        <button type="button" class="btn btn-ghost" id="btnFilesMobile" hidden>文件</button>
+      </header>
+
+      <!-- ========== 学习视图 ========== -->
+      <section class="view" id="viewLearn">
+        <div class="learn-layout">
+          <article class="chapter-pane" id="chapterRoot">
+            <div class="hero" id="learnHero">
+              <h1>选一章开始学</h1>
+              <p>NeoForge 分章教程 · Java 基础 · 可用 AI 生成自定义章节。每章底部可提问。</p>
+            </div>
+          </article>
+          <aside class="ask-pane" id="askPane">
+            <header>
+              <h2>本章提问</h2>
+              <small id="askChapterLabel">先选择章节</small>
+            </header>
+            <div class="ask-thread" id="askThread">
+              <div class="empty">没看懂的地方直接问，会带上本章内容回答。</div>
+            </div>
+            <form class="ask-form" id="askForm">
+              <textarea id="askInput" rows="2" placeholder="例如：DeferredRegister 为什么要 register 到 bus？" disabled></textarea>
+              <button type="submit" class="btn btn-primary" id="askSend" disabled>提问</button>
+            </form>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ========== 工作台视图 ========== -->
+      <section class="view" id="viewBench" hidden>
+        <div class="split">
+          <section class="chat-col">
+            <div class="hero" id="hero">
+              <h1>用对话写出 NeoForge 模组文件</h1>
+              <p>流式回复 · 工具写盘 · 可停止 · 可选 Gradle 构建。</p>
+              <div class="starters">
+                <button type="button" data-ask="注册一个叫 ruby 的物品，放进自定义创造栏，并写好中英文语言文件">注册一个物品</button>
+                <button type="button" data-ask="做一个会发光的方块，需要镐子才能挖，并写好模型和 blockstates">做一个发光方块</button>
+                <button type="button" data-ask="搭一个 NeoForge 1.21.1 最小可运行模组骨架：主类、mods.toml、空注册">最小模组骨架</button>
+              </div>
+            </div>
+            <div class="conversation" id="conversation"></div>
+            <div class="dock">
+              <div class="work-card" id="workCard" hidden>
+                <header>
+                  <i class="live" id="liveDot"></i>
+                  <b id="workTitle">正在制作</b>
+                  <small id="workNow"></small>
+                  <span class="grow"></span>
+                  <small id="workCount">0 步</small>
+                  <button type="button" class="btn btn-ghost" id="btnStop" hidden>停止</button>
+                </header>
+                <ul class="steps" id="workSteps"></ul>
+              </div>
+              <form class="composer" id="composer">
+                <textarea id="input" rows="1" placeholder="例如：给模组加一个魔法南瓜灯"></textarea>
+                <div class="composer-bottom">
+                  <small class="hint" id="draftHint"></small>
+                  <span class="grow"></span>
+                  <button type="submit" class="btn btn-primary" id="sendButton">发送</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <aside class="assets" id="assets">
+            <header>
+              <div>
+                <small id="assetsRoot">workspace/projects/</small>
+                <h2>工程文件</h2>
+              </div>
+              <span id="fileCount">0</span>
+              <button type="button" class="btn btn-icon-only" id="btnRefresh" title="刷新">↻</button>
+              <button type="button" class="btn btn-icon-only assets-close" id="btnCloseAssets" aria-label="关闭">×</button>
+            </header>
+            <div class="file-list" id="fileList">
+              <div class="empty">发送第一条消息后会创建独立工程目录。</div>
+            </div>
+            <div class="file-preview" id="filePreview" hidden>
+              <header>
+                <b id="previewPath"></b>
+                <a class="btn btn-ghost" id="btnDownload" download>下载</a>
+                <button type="button" class="btn btn-ghost" id="btnClosePreview">关闭</button>
+              </header>
+              <pre id="previewCode"></pre>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 生成章节弹窗 -->
+  <div class="modal" id="genModal" hidden>
+    <section>
+      <header>
+        <h2>AI 生成章节</h2>
+        <button type="button" class="btn btn-icon-only" id="btnCloseGen">×</button>
+      </header>
+      <form id="genForm">
+        <label>想学什么主题？
+          <textarea id="genTopic" rows="3" placeholder="例如：怎么生成自定义群系 / 怎么做自定义生物 AI / 数据包战利品表"></textarea>
+        </label>
+        <div id="genStatus" class="gen-status" hidden></div>
+        <footer>
+          <button type="button" class="btn btn-ghost" id="btnCancelGen">取消</button>
+          <button type="submit" class="btn btn-primary" id="btnStartGen">生成</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 设置 -->
+  <div class="modal" id="settingsModal" hidden>
+    <section>
+      <header>
+        <h2>API / Gradle 设置</h2>
+        <button type="button" class="btn btn-icon-only" id="btnCloseSettings">×</button>
+      </header>
+      <form id="settingsForm">
+        <label>Base URL
+          <input name="baseUrl" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+        </label>
+        <label>API Key
+          <input name="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
+          <small id="keyHint"></small>
+        </label>
+        <label>模型
+          <input name="model" placeholder="deepseek-chat" autocomplete="off" />
+        </label>
+        <div class="grid2">
+          <label>modId
+            <input name="modId" placeholder="mymod" autocomplete="off" />
+          </label>
+          <label>Minecraft
+            <input name="mcVersion" placeholder="1.21.1" autocomplete="off" />
+          </label>
+        </div>
+        <label>工程名
+          <input name="workspaceName" placeholder="MyNeoForgeMod" autocomplete="off" />
+        </label>
+        <label>Gradle 命令（可选）
+          <input name="gradleCmd" placeholder="留空则用工程内 gradlew" autocomplete="off" />
+        </label>
+        <label>GitHub 仓库（自动更新用）
+          <input name="updateRepo" placeholder="用户名/仓库名，例如 43456-awa/automods-lite" autocomplete="off" />
+        </label>
+        <div class="grid2">
+          <label>构建超时（秒）
+            <input name="gradleTimeoutSec" type="number" min="30" max="900" placeholder="180" />
+          </label>
+        </div>
+        <p class="note">Key 只写在本机 <code>config.json</code>。</p>
+        <footer>
+          <button type="button" class="btn btn-ghost" id="btnCancelSettings">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 代码体检抽屉 -->
+  <aside class="checker" id="checker" aria-hidden="true" aria-label="代码体检">
+    <div class="checker-head">
+      <div>
+        <div class="checker-title">代码体检</div>
+        <div class="checker-sub">NeoForge 1.21.1 常见规范检查</div>
+      </div>
+      <button type="button" class="btn btn-icon-only" id="btnCloseChecker">✕</button>
+    </div>
+    <div class="checker-body">
+      <div class="checker-tabs" role="tablist">
+        <button type="button" class="tab is-active" data-lang="java">Java</button>
+        <button type="button" class="tab" data-lang="json">JSON</button>
+        <button type="button" class="tab" data-lang="toml">TOML</button>
+      </div>
+      <label class="field">
+        <span class="field-label">粘贴代码</span>
+        <textarea id="codeInput" spellcheck="false" rows="12" placeholder="粘贴本章练习代码…"></textarea>
+      </label>
+      <div class="checker-actions">
+        <button type="button" class="btn btn-primary" id="btnRunCheck">开始检查</button>
+        <button type="button" class="btn btn-ghost" id="btnClearCheck">清空</button>
+        <span class="check-hint" id="checkHint">0 行</span>
+      </div>
+      <div class="check-results" id="checkResults">
+        <div class="empty-state">粘贴后点「开始检查」。</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="checker.js"></script>
+  <script src="learn.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

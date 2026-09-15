@@ -1,0 +1,12 @@
+{
+  "baseUrl": "https://api.deepseek.com/v1",
+  "apiKey": "sk-在这里填你的key",
+  "model": "deepseek-chat",
+  "workspaceName": "MyNeoForgeMod",
+  "modId": "mymod",
+  "mcVersion": "1.21.1",
+  "gradleCmd": "",
+  "gradleTimeoutSec": 180,
+  "updateRepo": "43456-awa/automods-lite",
+  "port": 8787
+}

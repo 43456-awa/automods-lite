@@ -1,0 +1,14 @@
+{
+  "name": "automods-lite",
+  "version": "0.3.1",
+  "private": true,
+  "description": "本地自用：NeoForge 分章学习 + 对话写模组文件",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

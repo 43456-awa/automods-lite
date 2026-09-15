@@ -1,0 +1,5 @@
+{
+  "version": "0.3.1",
+  "notes": "合并学习站+工作台；修复章内提问 AbortSignal；版本检测",
+  "minNode": 18
+}

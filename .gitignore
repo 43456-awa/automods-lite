@@ -1,0 +1,8 @@
+# secrets & local data
+config.json
+chats/
+workspace/
+chapters/
+node_modules/
+*.log
+.DS_Store
