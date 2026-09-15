@@ -580,18 +580,29 @@
             if (data.local) toast(`本地版本 ${data.local}`);
             return;
           }
-          if (data.updateAvailable) {
-            toast(`发现新版本 ${data.remote}（本地 ${data.local}）`);
-            if (data.notes) console.info("更新说明:", data.notes);
-            const ok = confirm(
-              `发现新版本 ${data.remote}\n本地：${data.local}\n\n${data.notes || ""}\n\n用 git pull 更新？\n仓库：${data.repo || ""}`
-            );
-            if (ok && data.repo) {
-              window.open(`https://github.com/${data.repo}`, "_blank");
-            }
-          } else {
+          if (!data.updateAvailable) {
             toast(`已是最新（${data.local}）`);
+            return;
           }
+          toast(`发现新版本 ${data.remote}（本地 ${data.local}）`);
+          const go = confirm(
+            `发现新版本 ${data.remote}\n本地：${data.local}\n\n${data.notes || ""}\n\n点「确定」一键更新（保留配置与工程数据）。\n更新后请关闭窗口，用 npm start 或 node boot.js 重新打开。`
+          );
+          if (!go) return;
+          btnUpd.textContent = "更新中…";
+          const applyRes = await fetch("/api/update/apply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          });
+          const apply = await applyRes.json().catch(() => ({}));
+          if (!apply.ok) {
+            toast(apply.message || "更新失败");
+            return;
+          }
+          alert(
+            `更新完成：${apply.message}\n\n已覆盖：${(apply.copied || []).join("、")}\n\n请关闭本页，然后重新运行：\nnpm start\n（或 node boot.js）`
+          );
         } catch {
           toast("检查更新失败（网络）");
         } finally {

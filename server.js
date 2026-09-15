@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { getTracks, getChapter, askAboutChapter, generateChapter, deleteCustom } from './learn.mjs';
+import { applyGithubUpdate } from './updater.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -36,8 +37,8 @@ const DEFAULT_CONFIG = {
   mcVersion: '1.21.1',
   gradleCmd: '',
   gradleTimeoutSec: 180,
-  // GitHub 更新源：owner/repo，例如 43456-awa/automods-lite
-  updateRepo: '',
+  // GitHub 更新源：owner/repo
+  updateRepo: '43456-awa/automods-lite',
   port: PORT,
 };
 
@@ -762,6 +763,19 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/health') {
       json(res, 200, { ok: true, workspace: WORKSPACE, version: LOCAL_VERSION });
+      return;
+    }
+
+    if (p === '/api/update/apply' && req.method === 'POST') {
+      const cfg = loadConfig();
+      const body = await readJson(req);
+      const repo = String(body.repo || cfg.updateRepo || '').trim();
+      try {
+        const result = await applyGithubUpdate(repo, ROOT);
+        json(res, result.ok ? 200 : 400, { ...result, local: LOCAL_VERSION, repo });
+      } catch (e) {
+        json(res, 500, { ok: false, message: String(e.message || e), local: LOCAL_VERSION, repo });
+      }
       return;
     }
 

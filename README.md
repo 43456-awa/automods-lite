@@ -1,51 +1,57 @@
 # automods-lite
 
-本地自用：**分章学习 + 章内提问 + AI 自定义章节 + 代码体检 + 对话写模组文件**（v0.3）。
+本地自用：**分章学习 + 章内提问 + AI 自定义章节 + 代码体检 + 对话写模组文件**。
 
-## 启动
+仓库：https://github.com/43456-awa/automods-lite （Public）
+
+## 首次安装（给朋友）
 
 ```powershell
+# 任选其一
+git clone https://github.com/43456-awa/automods-lite.git
+# 或下载仓库 ZIP 解压
+
 cd automods-lite
-node server.js
+copy config.example.json config.json
+notepad config.json   # 填 API Key / Base URL / 模型
+npm start             # 等价 node boot.js
 ```
 
-打开 <http://127.0.0.1:8787>，左上角切换 **学习 / 工作台**。
+打开 <http://127.0.0.1:8787>。
+
+## 以后更新（不用敲 git）
+
+1. 打开应用 → 顶栏 **检查更新**
+2. 有新版 → **确定一键更新**（自动下 GitHub 压缩包并覆盖源码）
+3. **关闭页面**，再 `npm start` 或双击启动方式重开
+
+会保留：`config.json`、`chats/`、`workspace/`、`chapters/`（你的对话、工程、自定义章节）。
 
 ## 学习
 
 | 轨道 | 内容 |
 |------|------|
-| NeoForge 模组 | 10 章：环境 → 注册 → 资源 → 事件 → 效果 → 配方 → 发布 |
-| Java 基础 | 5 章：变量流程 / 类对象 / 泛型集合 / 空与异常 / Lambda |
-| 自定义章节 | 点「＋ AI 生成章节」，例如「怎么生成自定义群系」 |
+| NeoForge 模组 | 10 章 |
+| Java 基础 | 5 章 |
+| 自定义章节 | AI 按主题生成，如「自定义群系」 |
 
-- 每章底部 **本章提问**（带上章节内容回答）
-- 侧栏 **代码体检**（Java / JSON / TOML 规则检查）
-- 自定义章可删除；存在 `chapters/*.json`
+- 章内提问、代码体检（Java / JSON / TOML）
 
 ## 工作台
 
-- 流式对话、停止、工具写盘
-- 每对话独立工程 `workspace/projects/p_xxxxxxxx/`
-- 可选 Gradle：工程内 `gradlew` 或设置里 `gradleCmd`
-- 清历史（保留最近 N 轮，文件不动）
-
-## 配置
-
-设置里填 OpenAI 兼容 API（Base URL / Key / 模型）与 modId、MC 版本。
+- 流式对话写文件、停止、独立工程、可选 Gradle、清历史
 
 ## 目录
 
 ```
-automods-lite/
-  server.js          # API + Agent
-  learn.mjs          # 课程 / 提问 / 生成章节
-  content/           # 内置章节源
-  chapters/          # 自定义章节 JSON
-  public/            # 前端
-  workspace/projects/
-  chats/
-  config.json
+boot.js            # 启动入口（应用挂起更新）
+server.js
+learn.mjs
+updater.mjs        # GitHub zip 一键更新
+content/ public/
+workspace/ chats/ chapters/   # 本地数据，不进 git
+config.json
+update.json        # 远程版本号（发版时改这个）
 ```
 
-仅监听 `127.0.0.1`。不包含 AutoMods 品牌与积分逻辑。
+发新版本时：改 `package.json` 与 `update.json` 的 `version`，`git push` 即可。

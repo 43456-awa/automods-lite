@@ -1,5 +1,5 @@
 {
-  "version": "0.3.1",
-  "notes": "合并学习站+工作台；修复章内提问 AbortSignal；版本检测",
+  "version": "0.3.2",
+  "notes": "仓库转 Public；应用内一键更新（boot.js + updater）；章内提问修复",
   "minNode": 18
 }
