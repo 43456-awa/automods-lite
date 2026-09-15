@@ -10,6 +10,18 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const pending = path.join(ROOT, 'server.pending.js');
 const target = path.join(ROOT, 'server.js');
 const stamp = path.join(ROOT, '.update-applied');
+const configPath = path.join(ROOT, 'config.json');
+const examplePath = path.join(ROOT, 'config.example.json');
+
+// 首次启动：没有 config.json 就从模板生成一份，免得用户手动复制改名
+try {
+  if (!fs.existsSync(configPath) && fs.existsSync(examplePath)) {
+    fs.copyFileSync(examplePath, configPath);
+    console.log('[boot] 已创建 config.json（来自模板）。请到网页「设置」里填 API Key。');
+  }
+} catch (e) {
+  console.warn('[boot] 创建 config.json 失败：', e.message || e);
+}
 
 try {
   if (fs.existsSync(pending)) {

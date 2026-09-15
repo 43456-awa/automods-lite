@@ -12,12 +12,12 @@ git clone https://github.com/43456-awa/automods-lite.git
 # 或下载仓库 ZIP 解压
 
 cd automods-lite
-copy config.example.json config.json
-notepad config.json   # 填 API Key / Base URL / 模型
-npm start             # 等价 node boot.js
+npm start
 ```
 
-打开 <http://127.0.0.1:8787>。
+打开 <http://127.0.0.1:8787> → 左下角 **设置** → 填 API Key / 模型 → 保存。
+
+（若目录里还没有 `config.json`，`npm start` 会自动从模板生成一份，不用手动复制。）
 
 ## 以后更新（不用敲 git）
 

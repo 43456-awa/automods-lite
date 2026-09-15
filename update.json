@@ -1,5 +1,5 @@
-{
-  "version": "0.3.2",
-  "notes": "仓库转 Public；应用内一键更新（boot.js + updater）；章内提问修复",
+﻿{
+  "version": "0.3.3",
+  "notes": "首次启动自动创建 config.json，无需手动复制模板",
   "minNode": 18
 }

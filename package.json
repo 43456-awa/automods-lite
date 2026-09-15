@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "automods-lite",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
-  "description": "本地自用：NeoForge 分章学习 + 对话写模组文件",
+  "description": "鏈湴鑷敤锛歂eoForge 鍒嗙珷瀛︿範 + 瀵硅瘽鍐欐ā缁勬枃浠?,
   "type": "module",
   "scripts": {
     "start": "node boot.js",
@@ -13,3 +13,4 @@
     "node": ">=18"
   }
 }
+
