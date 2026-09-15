@@ -6,18 +6,19 @@
 
 ## 首次安装（给朋友）
 
-```powershell
-# 任选其一
-git clone https://github.com/43456-awa/automods-lite.git
-# 或下载仓库 ZIP 解压
+1. 打开 https://github.com/43456-awa/automods-lite → **Code → Download ZIP**
+2. 解压到例如 `D:\automods-lite`
+3. 双击文件夹里的 **`启动.bat`**（会自动打开浏览器）
+4. 网页左下角 **设置** → 填 API Key → 保存
 
-cd automods-lite
+需要已安装 [Node.js LTS](https://nodejs.org/)。若没有 `config.json`，启动时会自动从模板生成。
+
+命令行用户也可以：
+
+```powershell
+cd 路径\automods-lite
 npm start
 ```
-
-打开 <http://127.0.0.1:8787> → 左下角 **设置** → 填 API Key / 模型 → 保存。
-
-（若目录里还没有 `config.json`，`npm start` 会自动从模板生成一份，不用手动复制。）
 
 ## 以后更新（不用敲 git）
 

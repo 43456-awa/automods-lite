@@ -1,5 +1,5 @@
 ﻿{
-  "version": "0.3.3",
-  "notes": "首次启动自动创建 config.json，无需手动复制模板",
+  "version": "0.3.4",
+  "notes": "新增 启动.bat：双击即可启动并打开浏览器，无需 cd/npm",
   "minNode": 18
 }
