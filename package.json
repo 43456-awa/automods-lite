@@ -1,8 +1,8 @@
-﻿{
+{
   "name": "automods-lite",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
-  "description": "鏈湴鑷敤锛歂eoForge 鍒嗙珷瀛︿範 + 瀵硅瘽鍐欐ā缁勬枃浠?,
+  "description": "Local NeoForge learn + workbench (personal use)",
   "type": "module",
   "scripts": {
     "start": "node boot.js",
@@ -13,6 +13,3 @@
     "node": ">=18"
   }
 }
-
-
-
