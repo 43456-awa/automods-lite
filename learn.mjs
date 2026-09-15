@@ -224,7 +224,9 @@ body 规范：
       body: JSON.stringify({
         model: cfg.model,
         messages,
-        temperature: 0.5,
+        temperature: Number.isFinite(Number(cfg.temperature)) ? Number(cfg.temperature) : 0.5,
+        top_p: Number.isFinite(Number(cfg.topP)) ? Number(cfg.topP) : undefined,
+        max_tokens: Number(cfg.maxTokens) > 0 ? Number(cfg.maxTokens) : undefined,
         stream: true,
       }),
     });

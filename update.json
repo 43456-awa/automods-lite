@@ -1,5 +1,5 @@
-{
-  "version": "0.3.6",
-  "notes": "Fix corrupted package.json encoding (ASCII only); friend should re-download ZIP",
+﻿{
+  "version": "0.3.7",
+  "notes": "Model settings: temperature, top_p, maxTokens, reasoning effort, history limit, API timeout, model presets, R1 thinking status",
   "minNode": 18
 }

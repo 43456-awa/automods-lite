@@ -1,6 +1,6 @@
 {
   "name": "automods-lite",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "description": "Local NeoForge learn + workbench (personal use)",
   "type": "module",

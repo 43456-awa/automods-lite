@@ -313,6 +313,13 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   box-shadow: 0 0 0 3px rgba(91,192,235,.12);
 }
 .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.modal select {
+  width: 100%; margin-top: 4px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel-2); color: var(--ink); font: inherit;
+}
+.hint-line { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .modal footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .modal .note { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 #keyHint { display: block; font-size: 11px; margin-top: 4px; }

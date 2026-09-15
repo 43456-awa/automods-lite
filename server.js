@@ -39,6 +39,16 @@ const DEFAULT_CONFIG = {
   gradleTimeoutSec: 180,
   // GitHub 更新源：owner/repo
   updateRepo: '43456-awa/automods-lite',
+  // 模型调用参数
+  temperature: 0.4,
+  topP: 1,
+  maxTokens: 8192,
+  // off | low | medium | high — 有对应 API 才透传（OpenAI reasoning_effort 等）
+  reasoningEffort: 'off',
+  // 发给上游时最多带多少条历史消息（控制上下文占用；真正窗口大小由模型决定）
+  historyLimit: 36,
+  // 上游 chat/completions 超时（秒）
+  apiTimeoutSec: 180,
   port: PORT,
 };
 
@@ -247,7 +257,7 @@ src/main/resources/assets/${cfg.modId}/models/item/xxx.json
 function toApiMessages(chat, cfg) {
   const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default') }];
   const src = chat.messages || [];
-  const BUDGET = 36;
+  const BUDGET = Math.max(8, Number(cfg.historyLimit) || 36);
   let start = Math.max(0, src.length - BUDGET);
   while (start > 0 && src[start]?.role === 'tool') start -= 1;
 
@@ -471,20 +481,48 @@ function tail(s, n) {
 }
 
 /* ---------------- OpenAI streaming (shared) ---------------- */
+function buildChatBody(cfg, messages, tools) {
+  const temperature = Number(cfg.temperature);
+  const topP = Number(cfg.topP);
+  const maxTokens = Number(cfg.maxTokens);
+  const body = {
+    model: cfg.model,
+    messages,
+    temperature: Number.isFinite(temperature) ? temperature : 0.4,
+    stream: true,
+  };
+  if (Number.isFinite(topP) && topP > 0 && topP <= 1) body.top_p = topP;
+  if (Number.isFinite(maxTokens) && maxTokens > 0) {
+    // 兼容不同网关字段名
+    body.max_tokens = maxTokens;
+    body.max_completion_tokens = maxTokens;
+  }
+  if (tools && tools.length) {
+    body.tools = tools;
+    body.tool_choice = 'auto';
+  }
+  const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
+  if (effort && effort !== 'off') {
+    // OpenAI o系列 / 部分中转；不认识的服务端通常忽略或报错，报错会原样抛出
+    body.reasoning_effort = effort;
+  }
+  return body;
+}
+
+function withTimeoutSignal(signal, sec) {
+  const ms = Math.max(15, Number(sec) || 180) * 1000;
+  const timeout = AbortSignal.timeout(ms);
+  if (!signal) return timeout;
+  return AbortSignal.any([signal, timeout]);
+}
+
 export async function callChatStream(cfg, messages, tools, signal, emit) {
   const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
   if (!base) throw new Error('未配置 baseUrl');
   if (!cfg.apiKey || cfg.apiKey.startsWith('sk-在这里')) throw new Error('未配置 apiKey');
 
   const url = `${base}/chat/completions`;
-  const body = {
-    model: cfg.model,
-    messages,
-    temperature: 0.4,
-    tools,
-    tool_choice: 'auto',
-    stream: true,
-  };
+  const body = buildChatBody(cfg, messages, tools);
 
   const res = await fetch(url, {
     method: 'POST',
@@ -493,7 +531,7 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
       Authorization: `Bearer ${cfg.apiKey}`,
     },
     body: JSON.stringify(body),
-    signal,
+    signal: withTimeoutSignal(signal, cfg.apiTimeoutSec),
   });
 
   if (!res.ok) {
@@ -526,6 +564,11 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
       try { json = JSON.parse(payload); } catch { continue; }
       const delta = json.choices?.[0]?.delta;
       if (!delta) continue;
+      // DeepSeek reasoner / 部分模型：思考过程在 reasoning_content
+      const think = delta.reasoning_content || delta.reasoning;
+      if (think) {
+        emit({ k: 'think_delta', text: think });
+      }
       if (delta.content) {
         content += delta.content;
         emit({ k: 'say_delta', text: delta.content });

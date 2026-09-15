@@ -424,6 +424,11 @@
         setBusy(true, data.text || "制作中");
         els.workNow.textContent = data.text || "";
         break;
+      case "think_delta":
+        // R1 等思考过程：只更新状态行，不进对话正文
+        setBusy(true, "思考中…");
+        els.workNow.textContent = ("思考中… " + (data.text || "")).slice(0, 48);
+        break;
       case "say_delta":
         appendLive(data.text || "");
         break;
@@ -524,6 +529,12 @@
       if (f.gradleCmd) f.gradleCmd.value = cfg.gradleCmd || "";
       if (f.updateRepo) f.updateRepo.value = cfg.updateRepo || "";
       if (f.gradleTimeoutSec) f.gradleTimeoutSec.value = cfg.gradleTimeoutSec || 180;
+      if (f.temperature) f.temperature.value = cfg.temperature ?? 0.4;
+      if (f.topP) f.topP.value = cfg.topP ?? 1;
+      if (f.maxTokens) f.maxTokens.value = cfg.maxTokens ?? 8192;
+      if (f.reasoningEffort) f.reasoningEffort.value = cfg.reasoningEffort || "off";
+      if (f.historyLimit) f.historyLimit.value = cfg.historyLimit ?? 36;
+      if (f.apiTimeoutSec) f.apiTimeoutSec.value = cfg.apiTimeoutSec ?? 180;
       f.apiKey.value = "";
       els.keyHint.textContent = cfg.apiKeySet
         ? `已保存：${cfg.apiKeyHint}（留空则不改）`
@@ -716,6 +727,27 @@
         mcVersion: f.mcVersion.value.trim(),
         workspaceName: f.workspaceName.value.trim(),
       };
+      if (f.temperature) {
+        const t = Number(f.temperature.value);
+        if (Number.isFinite(t)) payload.temperature = t;
+      }
+      if (f.topP) {
+        const tp = Number(f.topP.value);
+        if (Number.isFinite(tp) && tp > 0 && tp <= 1) payload.topP = tp;
+      }
+      if (f.maxTokens) {
+        const m = parseInt(f.maxTokens.value, 10);
+        if (m > 0) payload.maxTokens = m;
+      }
+      if (f.reasoningEffort) payload.reasoningEffort = f.reasoningEffort.value || "off";
+      if (f.historyLimit) {
+        const h = parseInt(f.historyLimit.value, 10);
+        if (h > 0) payload.historyLimit = h;
+      }
+      if (f.apiTimeoutSec) {
+        const s = parseInt(f.apiTimeoutSec.value, 10);
+        if (s > 0) payload.apiTimeoutSec = s;
+      }
       if (f.gradleCmd) payload.gradleCmd = f.gradleCmd.value.trim();
       if (f.updateRepo) payload.updateRepo = f.updateRepo.value.trim();
       if (f.gradleTimeoutSec) payload.gradleTimeoutSec = Number(f.gradleTimeoutSec.value) || 180;
