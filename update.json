@@ -1,5 +1,5 @@
 ﻿{
-  "version": "0.3.4",
-  "notes": "新增 启动.bat：双击即可启动并打开浏览器，无需 cd/npm",
+  "version": "0.3.5",
+  "notes": "修复启动.bat 闪退：改用 ASCII 的 start.bat，中文版改为调用它",
   "minNode": 18
 }

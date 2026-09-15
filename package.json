@@ -1,6 +1,6 @@
 ﻿{
   "name": "automods-lite",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "鏈湴鑷敤锛歂eoForge 鍒嗙珷瀛︿範 + 瀵硅瘽鍐欐ā缁勬枃浠?,
   "type": "module",
@@ -13,5 +13,6 @@
     "node": ">=18"
   }
 }
+
 
 
