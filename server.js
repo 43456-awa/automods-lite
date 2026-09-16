@@ -1028,6 +1028,8 @@ async function readStreamWithIdleTimeout(reader, onChunk, idleSec, outerSignal, 
   const idleMs = Math.max(30, idleSec) * 1000;
   let idleTimer = null;
   let timedOut = false;
+  // 心跳按时间节流：上游一个 token 一块，按概率抽会把前端那行字刷成走马灯
+  let lastBeat = 0;
 
   const arm = () => {
     if (idleTimer) clearTimeout(idleTimer);
@@ -1058,7 +1060,8 @@ async function readStreamWithIdleTimeout(reader, onChunk, idleSec, outerSignal, 
       if (result.done) break;
       arm(); // 有数据 → 续命
       onChunk(result.value);
-      if (emit && Math.random() < 0.02) {
+      if (emit && Date.now() - lastBeat > 15000) {
+        lastBeat = Date.now();
         emit({ k: 'status', text: '思考/输出中…（有数据，不会超时）' });
       }
     }

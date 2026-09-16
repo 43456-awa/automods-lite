@@ -198,9 +198,12 @@
 
     const seen = store.get('entered', false);
     const skip = location.hash.includes('enter') || location.search.includes('app=1');
-    if (seen || skip) {
-      if (skip) store.set('entered', true);
+    // ?chat=<id> 直接落到一个项目上，链接可以收藏也能发给人
+    const wantChat = new URLSearchParams(location.search).get('chat');
+    if (seen || skip || wantChat) {
+      if (skip || wantChat) store.set('entered', true);
       enterApp(false);
+      if (wantChat) selectChat(wantChat).catch(() => toast('这个项目打不开', 'bad'));
     } else {
       $('loginView').hidden = false;
     }
@@ -350,6 +353,8 @@
     host.textContent = '';
     state.work = null;
     state.live = null;
+    state.thinkEntry = null;
+    state.thinkText = '';
     messages.forEach((msg) => {
       if (msg.role === 'user') {
         const node = make('div', 'message user');
@@ -444,6 +449,23 @@
     return { row, body, card };
   }
 
+  /** 思考流结束：把攒下来的一段定成一行，后面再思考就另起一行 */
+  function closeThink() {
+    if (!state.thinkEntry) return;
+    const text = state.thinkText.trim().replace(/\s+/g, ' ');
+    const brief = state.thinkEntry.body.querySelector('.hx-brief');
+    if (brief) brief.textContent = text.length > 90 ? `${text.slice(0, 90)}…` : text;
+    // 整段原文留在展开后的框里，想细看就点开
+    if (text.length > 90) {
+      const box = make('details');
+      box.appendChild(make('summary', null, '看它想了什么'));
+      box.appendChild(make('pre', 'hx-out', state.thinkText.trim()));
+      state.thinkEntry.body.appendChild(box);
+    }
+    state.thinkEntry = null;
+    state.thinkText = '';
+  }
+
   function assistantBubble() {
     const node = make('div', 'message assistant');
     const body = make('div');
@@ -502,6 +524,8 @@
     state.live = null;
     state.liveText = '';
     state.answerText = '';
+    state.thinkEntry = null;
+    state.thinkText = '';
     state.pendingTool = new Map();
     setRunState('制作中', true);
 
@@ -552,6 +576,7 @@
   }
 
   function finishRun() {
+    closeThink();
     setRunState('空闲', false);
     if (state.work) {
       state.work._head.textContent = '制作记录';
@@ -584,16 +609,28 @@
         break;
 
       case 'think_delta': {
-        const text = String(event.text || '').replace(/\*\*/g, '').trim();
-        if (!text) break;
-        stepRow('思考', text.slice(0, 60));
+        const text = String(event.text || '').replace(/\*\*/g, '');
+        if (!text.trim()) break;
+        // 上游是一个 token 一块，必须攒到同一行里，一行一块会把记录刷成几百行
+        if (!state.thinkEntry) {
+          state.thinkEntry = stepRow('思考', '');
+          state.thinkText = '';
+          state.thinkSteps = 0;
+        }
+        state.thinkText += text;
+        const brief = state.thinkEntry.body.querySelector('.hx-brief');
+        const tail = state.thinkText.trim().replace(/\s+/g, ' ').slice(-60);
+        if (brief) brief.textContent = tail;
+        if (state.work) state.work._now.textContent = `正在琢磨… ${tail}`.slice(0, 46);
         break;
       }
 
       case 'think_keep':
+        closeThink();
         break;
 
       case 'say_delta':
+        closeThink();
         if (!state.live) {
           state.live = assistantBubble();
           state.liveText = '';
@@ -604,6 +641,7 @@
         break;
 
       case 'say_settled':
+        closeThink();
         if (state.answerText && state.live) {
           const box = make('details');
           box.appendChild(make('summary', null, '阶段小结'));
@@ -623,6 +661,7 @@
         break;
 
       case 'tool': {
+        closeThink();
         const names = {
           write_file: '写文件', read_file: '读文件', list_files: '列目录',
           run_gradle: '编译', delete_file: '删文件',
