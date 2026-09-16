@@ -1,5 +1,5 @@
 {
-  "version": "0.3.9",
-  "notes": "Fact memory (search+UI); AI plan multi-select+edit; plan 429 retry; stop/queue; native model dropdown; ctx popover; beginner chapters",
+  "version": "0.3.10",
+  "notes": "Fix in-app updater missing memory.mjs / all root .mjs files",
   "minNode": 18
 }

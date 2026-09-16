@@ -25,12 +25,16 @@ const KEEP = new Set([
 const COPY_FILES = [
   'server.js',
   'learn.mjs',
+  'updater.mjs',
+  'memory.mjs',
   'package.json',
   'update.json',
   'README.md',
   'config.example.json',
   '.gitignore',
   'boot.js',
+  'start.bat',
+  'DESIGN.md',
 ];
 
 const COPY_DIRS = ['public', 'content'];
@@ -140,6 +144,17 @@ export async function applyGithubUpdate(repo, root) {
       copied.push(name);
     }
   }
+
+  // 兜底：根目录所有 .mjs 一并同步，避免新增模块漏拷
+  try {
+    const roots = await fsp.readdir(srcRoot, { withFileTypes: true });
+    for (const ent of roots) {
+      if (!ent.isFile() || !ent.name.endsWith('.mjs')) continue;
+      if (COPY_FILES.includes(ent.name)) continue;
+      await fsp.copyFile(path.join(srcRoot, ent.name), path.join(root, ent.name));
+      copied.push(ent.name);
+    }
+  } catch { /* ignore */ }
 
   for (const dir of COPY_DIRS) {
     const s = path.join(srcRoot, dir);
