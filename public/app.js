@@ -917,8 +917,18 @@ ${lines.join("\n")}
         // 收尾后的后台动作，只提示，不改 busy
         els.draftHint.textContent = data.text || "";
         break;
+      case "think_keep":
+        // 限流/出错：保留思考，只改标题
+        if (els.thinkBox) els.thinkBox.hidden = false;
+        if (els.thinkText) els.thinkText.textContent = "思考已中断 · 已保留";
+        if (els.thinkBody && thinkAcc) {
+          els.thinkBody.hidden = false;
+          els.thinkBody.textContent = thinkAcc.slice(-2000);
+        }
+        break;
       case "run_end":
         if (state.liveBubble) cancelLive();
+        // 有错误时不硬清思考
         hideThink(true);
         streamAbort = null;
         setBusy(false);
@@ -982,12 +992,20 @@ ${lines.join("\n")}
       streamAbort = null;
       if (e?.name === "AbortError") {
         if (state.liveBubble) cancelLive();
+        hideThink(true);
         setBusy(false);
         return;
       }
       if (state.liveBubble) cancelLive();
       addMsg("system", e.message || String(e));
       els.conversation.lastChild?.classList.add("err");
+      // 失败保留思考过程
+      if (els.thinkBox) els.thinkBox.hidden = false;
+      if (els.thinkText) els.thinkText.textContent = "本轮失败 · 思考已保留";
+      if (els.thinkBody && thinkAcc) {
+        els.thinkBody.hidden = false;
+        els.thinkBody.textContent = thinkAcc.slice(-2000);
+      }
       setBusy(false);
     });
   }

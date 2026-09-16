@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
   updateRepo: '43456-awa/automods-lite',
   temperature: 0.4,
   topP: 1,
-  maxTokens: 8192,
+  maxTokens: 16384,
   reasoningEffort: 'off',
   reasoningStyle: 'auto',
   historyLimit: 36,
@@ -254,12 +254,14 @@ ${memBlock}
 规则：
 1. 需要落盘的代码/JSON/资源，必须调用 write_file，不要只贴在对话里让用户复制。
 2. 一次可以写多个文件。Java 包名与路径一致：src/main/java/...
-3. 清单文件：${tomlPath}；资源 assets/${cfg.modId}/...、data/${cfg.modId}/...
-4. ${depLine}modId 全小写。
-5. 回复用简体中文，短句说明你做了什么、下一步建议。
-6. 不要编造未实现的 API；不确定时选该版本常见写法并说明。
-7. 用户要求编译/构建时，调用 run_gradle（默认 build）。
-8. 贴图 png 无法用工具生成，路径写好并告诉用户自己放文件。
+3. **单文件尽量一次写完**；若超过约 300 行，拆成多次 write_file（先骨架再补全），避免 arguments 被截断。
+4. 清单文件：${tomlPath}；资源 assets/${cfg.modId}/...、data/${cfg.modId}/...
+5. ${depLine}modId 全小写。
+6. 回复用简体中文，短句说明你做了什么、下一步建议。
+7. 不要编造未实现的 API；不确定时选该版本常见写法并说明。
+8. 用户要求编译/构建时，调用 run_gradle（默认 build）。
+9. 贴图 png 无法用工具生成，路径写好并告诉用户自己放文件。
+10. 若 write_file 返回「参数 JSON 不完整」，立刻重试一次完整 JSON，不要改聊别的。
 
 标准目录：
 src/main/java/com/example/${cfg.modId}/
@@ -747,23 +749,29 @@ function normalizePlan(plan) {
   };
 }
 
-/** 429/5xx 自动重试，避免一次限流就整段对话挂掉 */
+/** 429/5xx 自动重试；每次尝试单独超时，避免第一次拖死后续重试 */
 async function fetchChatWithRetry(url, init, cfg, emit) {
   const max = Math.max(0, Number(cfg.apiRetries) || 4);
+  const timeoutSec = Math.max(30, Number(cfg.apiTimeoutSec) || 180);
   let attempt = 0;
   let lastErr = null;
 
   while (attempt <= max) {
     if (init.signal?.aborted) throw new Error('已手动停止');
+    // 每次重试新建 timeout，不能复用第一次的 AbortSignal
+    const attemptSignal = init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutSec * 1000)])
+      : AbortSignal.timeout(timeoutSec * 1000);
+
     let res;
     try {
-      res = await fetch(url, init);
+      res = await fetch(url, { ...init, signal: attemptSignal });
     } catch (e) {
       lastErr = e;
       if (init.signal?.aborted || e?.name === 'AbortError') throw e;
       if (attempt >= max) throw e;
-      const wait = Math.min(12000, 800 * 2 ** attempt) + Math.floor(Math.random() * 400);
-      emit?.({ k: 'status', text: `网络异常，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）` });
+      const wait = Math.min(15000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+      emit?.({ k: 'status', text: `网络/超时，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）` });
       await sleep(wait);
       attempt += 1;
       continue;
@@ -776,11 +784,11 @@ async function fetchChatWithRetry(url, init, cfg, emit) {
     if (attempt >= max) return res;
 
     const ra = Number(res.headers.get('Retry-After'));
-    const wait = (ra > 0 ? ra * 1000 : Math.min(12000, 1000 * 2 ** attempt + Math.floor(Math.random() * 500)));
+    const wait = (ra > 0 ? ra * 1000 : Math.min(15000, 1200 * 2 ** attempt + Math.floor(Math.random() * 600)));
     emit?.({
       k: 'status',
       text: res.status === 429
-        ? `上游限流，${Math.round(wait / 1000)}s 后自动重试（${attempt + 1}/${max}）`
+        ? `上游限流，${Math.round(wait / 1000)}s 后自动重试（${attempt + 1}/${max}）· 已保留思考`
         : `上游 ${res.status}，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）`,
     });
     await sleep(wait);
@@ -804,7 +812,7 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
       Authorization: `Bearer ${cfg.apiKey}`,
     },
     body: JSON.stringify(body),
-    signal: withTimeoutSignal(signal, cfg.apiTimeoutSec),
+    signal, // 交给 retry 内部做每次尝试的超时
   }, cfg, emit);
 
   if (!res.ok) {
@@ -819,8 +827,8 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
   const decoder = new TextDecoder();
   let buf = '';
   let content = '';
-  /** @type {{id:string,name:string,args:string}[]} */
-  const toolMap = new Map(); // index -> {id,name,args}
+  let finishReason = '';
+  const toolMap = new Map();
 
   while (true) {
     const { value, done } = await reader.read();
@@ -835,9 +843,9 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
       if (payload === '[DONE]') continue;
       let json;
       try { json = JSON.parse(payload); } catch { continue; }
+      if (json.choices?.[0]?.finish_reason) finishReason = json.choices[0].finish_reason;
       const delta = json.choices?.[0]?.delta;
       if (!delta) continue;
-      // DeepSeek reasoner / 部分模型：思考过程在 reasoning_content
       const think = delta.reasoning_content || delta.reasoning;
       if (think) {
         emit({ k: 'think_delta', text: think });
@@ -863,9 +871,19 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
 
   const toolCalls = [...toolMap.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([, v]) => ({ id: v.id, name: v.name || 'tool', args: v.args || '{}' }));
+    .map(([, v]) => ({
+      id: v.id,
+      name: v.name || 'tool',
+      args: v.args || '{}',
+      // 参数 JSON 明显不完整（被 max_tokens 截断）时标记
+      truncated: finishReason === 'length' && v.args && !v.args.trim().endsWith('}'),
+    }));
 
-  return { content, toolCalls };
+  if (finishReason === 'length') {
+    emit({ k: 'status', text: '输出被 max_tokens 截断，正在尽量恢复…' });
+  }
+
+  return { content, toolCalls, finishReason };
 }
 
 /**
@@ -979,9 +997,27 @@ async function runAgent(chat, emit) {
       for (const tc of toolCalls) {
         if (ac.signal.aborted) break;
         let args = {};
-        try { args = JSON.parse(tc.args || '{}'); } catch { args = {}; }
-        emit({ k: 'tool', id: tc.id, name: tc.name, brief: args.path || args.task || '' });
-        const result = await execTool(tc.name, args, project, emit);
+        let parseErr = '';
+        try {
+          args = JSON.parse(tc.args || '{}');
+        } catch {
+          // 截断/畸形参数：尽量抠 JSON，仍失败则把错误喂回模型让它重试
+          args = extractJsonObject(tc.args) || {};
+          if (!args || !Object.keys(args).length) parseErr = '工具参数 JSON 不完整';
+        }
+        if (tc.truncated && !parseErr) parseErr = '工具参数可能被截断';
+
+        emit({ k: 'tool', id: tc.id, name: tc.name, brief: args.path || args.task || (parseErr || '') });
+
+        let result;
+        if (parseErr && tc.name === 'write_file' && !args.path) {
+          result = {
+            ok: false,
+            out: `${parseErr}。请重新调用 write_file；若文件很长，请拆成多次 write_file（先写骨架再补全），并确保 arguments 是完整 JSON。`,
+          };
+        } else {
+          result = await execTool(tc.name, args, project, emit);
+        }
         emit({ k: 'tool_done', id: tc.id, ok: result.ok, out: result.out.slice(0, 4000) });
         const toolText = result.ok ? result.out : `错误：${result.out}`;
         chat.messages.push({
@@ -1005,7 +1041,9 @@ async function runAgent(chat, emit) {
       emit({ k: 'say_settle_cancel' });
     } else {
       emit({ k: 'error', text: String(e.message || e) });
+      // 失败时保留思考框，不要清空（用户反馈限流后思考全没了）
       emit({ k: 'say_settle_cancel' });
+      emit({ k: 'think_keep' });
       chat.messages.push({
         role: 'assistant',
         content: `出错了：${e.message || e}`,
