@@ -99,6 +99,7 @@ function maskConfig(cfg) {
   const { apiKey, ...rest } = cfg;
   return {
     ...rest,
+    localVersion: LOCAL_VERSION,
     apiKeySet: Boolean(apiKey && !apiKey.startsWith('sk-在这里')),
     apiKeyHint: apiKey ? `${apiKey.slice(0, 6)}…${apiKey.slice(-4)}` : '',
   };
@@ -288,7 +289,10 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
   '.md': 'text/markdown; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
 };
@@ -1391,6 +1395,11 @@ async function runAgent(chat, emit) {
     chat.busy = false;
     chat.updatedAt = Date.now();
     saveChat(chat);
+    // 这一轮写进工程的内容总长，当作输出量记一笔
+    const wrote = chat.messages
+      .filter((m) => m.role === 'assistant')
+      .reduce((sum, m) => sum + String(m.content || '').length, 0);
+    bumpUsage(wrote);
     emit({ k: 'run_end' });
     emit({ k: 'files', files: await listProjectFiles(project), project });
     // 收尾后再总结记忆；用 memory_status，前端不会再把界面打回「停止」
@@ -1440,6 +1449,75 @@ function sseOpen(res) {
 
 function sseSend(res, obj) {
   res.write(`data: ${JSON.stringify(obj)}\n\n`);
+}
+
+/* ---------------- 本机用量统计 ----------------
+ * 本地版没有积分，但主人还是想知道自己到底跑了多少次、花了多少字。
+ * 只记条数和输出字节，不记内容。 */
+const USAGE_PATH = path.join(ROOT, 'usage.json');
+
+function loadUsage() {
+  try {
+    const raw = fs.readFileSync(USAGE_PATH, 'utf8').replace(/^﻿/, '');
+    return { requests: 0, bytes: 0, since: Date.now(), ...JSON.parse(raw) };
+  } catch {
+    return { requests: 0, bytes: 0, since: Date.now() };
+  }
+}
+
+function bumpUsage(bytes) {
+  const usage = loadUsage();
+  usage.requests = Number(usage.requests || 0) + 1;
+  usage.bytes = Number(usage.bytes || 0) + (Number(bytes) || 0);
+  try {
+    const tmp = `${USAGE_PATH}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(usage, null, 2), 'utf8');
+    fs.renameSync(tmp, USAGE_PATH);
+  } catch { /* 记不下来也不影响主流程 */ }
+  return usage;
+}
+
+/** 本机有没有能用的 gradle（不看具体工程，只看机器） */
+function detectSystemGradle() {
+  const cmd = process.platform === 'win32' ? 'gradle.bat' : 'gradle';
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, ['-v'], { windowsHide: true });
+    } catch {
+      resolve({ ok: false, name: '' });
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { out += chunk.toString(); });
+    child.on('error', () => resolve({ ok: false, name: '' }));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        resolve({ ok: false, name: '' });
+        return;
+      }
+      const line = (out.match(/Gradle\s+([\d.]+)/) || [])[1] || '';
+      resolve({ ok: true, name: line ? `gradle ${line}` : 'gradle' });
+    });
+    setTimeout(() => {
+      try { child.kill(); } catch { /* 已经退出了 */ }
+    }, 8000);
+  });
+}
+
+/** 工程里已经带了 gradlew 也算「能编译」 */
+function anyProjectHasWrapper() {
+  try {
+    if (!fs.existsSync(PROJECTS)) return false;
+    return fs.readdirSync(PROJECTS).some((name) => {
+      const dir = path.join(PROJECTS, name);
+      return fs.existsSync(path.join(dir, 'gradlew'))
+        || fs.existsSync(path.join(dir, 'gradlew.bat'));
+    });
+  } catch {
+    return false;
+  }
 }
 
 async function serveStatic(req, res, urlPath) {
@@ -1502,6 +1580,32 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/health') {
       json(res, 200, { ok: true, workspace: WORKSPACE, version: LOCAL_VERSION });
+      return;
+    }
+
+    /** 本机环境：给启动页那张「本机就绪」卡用 */
+    if (p === '/api/env' && req.method === 'GET') {
+      const cfg = loadConfig();
+      const sys = await detectSystemGradle();
+      const wrapper = anyProjectHasWrapper();
+      const ok = sys.ok || Boolean(cfg.gradleCmd) || wrapper;
+      json(res, 200, {
+        platform: process.platform,
+        node: process.version,
+        workspace: WORKSPACE,
+        gradle: {
+          ok,
+          name: sys.name || (cfg.gradleCmd ? '设置里指定的 gradle' : '工程自带的 gradlew'),
+          system: sys.ok,
+          wrapper,
+        },
+      });
+      return;
+    }
+
+    /** 本机用量：顶栏那颗「积分」在本地版显示的就是这个 */
+    if (p === '/api/usage' && req.method === 'GET') {
+      json(res, 200, loadUsage());
       return;
     }
 
@@ -1753,6 +1857,21 @@ const server = http.createServer(async (req, res) => {
       ensureProject(chat.project);
       saveChat(chat);
       json(res, 200, { chat });
+      return;
+    }
+
+    // 项目改名：本地版没有 mod 标识那回事，改的是侧栏里显示的名字
+    if (p.match(/^\/api\/chats\/[^/]+\/rename$/) && req.method === 'POST') {
+      const id = p.split('/')[3];
+      const chat = loadChat(id);
+      if (!chat) return json(res, 404, { error: 'not found' });
+      const body = await readJson(req);
+      const title = String(body.title || '').trim().slice(0, 40);
+      if (!title) return json(res, 400, { error: '名字不能为空' });
+      chat.title = title;
+      chat.updatedAt = Date.now();
+      saveChat(chat);
+      json(res, 200, { ok: true, chat: { id: chat.id, title: chat.title } });
       return;
     }
 

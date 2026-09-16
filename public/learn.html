@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AutoMods · 教程</title>
+  <link rel="icon" type="image/png" href="/assets/blockforge-logo.png" />
+  <script src="/vendor/skin.js"></script>
+  <script src="/vendor/mc-icons.js"></script>
+  <link rel="stylesheet" href="/vendor/tokens.css" />
+  <link rel="stylesheet" href="/vendor/simple.css" />
+  <link rel="stylesheet" href="/vendor/hx.css" />
+  <script>
+    try {
+      var saved = localStorage.getItem('blockforge.theme');
+      if (saved === 'dark' || saved === 'light') document.documentElement.dataset.theme = saved;
+    } catch (e) { /* 忽略 */ }
+  </script>
+  <link rel="stylesheet" href="/vendor/skins.css" />
+  <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/learn.css" />
+</head>
+<body>
+  <div class="learn-shell">
+    <aside class="learn-side">
+      <header>
+        <a class="learn-back" href="/" title="回到工作台">‹</a>
+        <b>教程</b>
+      </header>
+      <div class="learn-tracks" id="tracks"></div>
+      <div class="learn-gen">
+        <input id="genTopic" type="text" placeholder="想学什么？让 AI 写一章" />
+        <button class="primary" id="genGo" type="button">生成</button>
+      </div>
+      <small class="learn-note" id="genNote"></small>
+    </aside>
+
+    <main class="learn-main">
+      <article class="learn-body" id="body">
+        <h1>先挑一章</h1>
+        <p class="learn-lead">左边是现成的章节。看完一段还不懂，直接在下面问。</p>
+      </article>
+
+      <div class="learn-ask">
+        <div class="learn-answers" id="answers"></div>
+        <div class="learn-ask-row">
+          <textarea id="ask" rows="1" placeholder="就这一章提问，例如：注册物品时 DeferredRegister 到底在干什么？"></textarea>
+          <button class="primary" id="askGo" type="button">问</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script src="/learn.js"></script>
+</body>
+</html>

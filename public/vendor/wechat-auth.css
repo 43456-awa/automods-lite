@@ -1,0 +1,17 @@
+.wechat-login{width:100%}
+.wechat-qr-shell{display:grid;grid-template-columns:172px minmax(0,1fr);align-items:center;gap:22px;margin-top:6px;padding:17px;border:1px solid var(--line,var(--border,#dfe4dc));border-radius:14px;background:var(--bg,var(--surface-soft,#f7faf5))}
+.wechat-qr-stage{position:relative;width:172px;height:172px;display:grid;place-items:center;padding:9px;border:1px solid var(--line,var(--border,#dfe4dc));border-radius:10px;background:#fff;box-shadow:0 7px 22px rgba(22,46,18,.08)}
+.wechat-qr-image{display:block;width:152px;height:152px}
+.wechat-qr-loading{display:grid;place-items:center;gap:10px;color:var(--muted,var(--text-muted,#788075));font-size:12px;text-align:center}
+.wechat-qr-loading i{width:25px;height:25px;border:3px solid #dce8d7;border-top-color:#51a934;border-radius:50%;animation:wechat-login-spin .8s linear infinite}
+.wechat-qr-refresh{width:126px;padding:9px 10px;border:1px solid #3f8e2d;border-radius:8px;background:#51a934;color:#fff;cursor:pointer;font-weight:700}
+.wechat-qr-refresh:disabled{opacity:.55;cursor:not-allowed}
+.wechat-login-copy{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:7px;text-align:left}
+.wechat-login-copy>b{font-size:18px;color:var(--text,#172016)}
+.wechat-login-status{color:#3f8e2d;font-size:13px;font-weight:700}
+.wechat-login-copy>small{color:var(--muted,var(--text-muted,#788075));font-size:11px;line-height:1.7}
+.wechat-login[data-state="success"] .wechat-qr-stage{border-color:#51a934;box-shadow:0 0 0 3px rgba(81,169,52,.12)}
+.wechat-login[data-state="error"] .wechat-login-status{color:#c94b43}
+.wechat-login[data-state="expired"] .wechat-login-status{color:#b56e16}
+@keyframes wechat-login-spin{to{transform:rotate(360deg)}}
+@media(max-width:520px){.wechat-qr-shell{grid-template-columns:1fr;justify-items:center;gap:12px}.wechat-login-copy{align-items:center;text-align:center}.wechat-qr-stage{width:164px;height:164px}.wechat-qr-image{width:144px;height:144px}}

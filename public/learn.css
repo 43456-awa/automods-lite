@@ -1,0 +1,330 @@
+/* 教程页：automods-lite 独有的那一块，主站没有。
+ * 配色和控件照样走 tokens.css，只是排成左边目录、右边正文的两栏。 */
+
+.learn-shell {
+  display: flex;
+  height: 100vh;
+  background: var(--page);
+  color: var(--text);
+}
+
+/* ---------------- 左栏 ---------------- */
+
+.learn-side {
+  display: flex;
+  flex-direction: column;
+  width: 250px;
+  flex: none;
+  border-right: 1px solid var(--border);
+  background: var(--surface-alt);
+}
+
+.learn-side > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.learn-back {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.learn-back:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.learn-tracks {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.learn-track {
+  margin-bottom: 10px;
+}
+
+.learn-track > b {
+  display: block;
+  padding: 4px 6px;
+  font-size: 11px;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+
+.learn-chapter {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.learn-chapter:hover {
+  background: var(--surface-hover);
+}
+
+.learn-chapter.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.learn-chapter small {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn-gen {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.learn-gen input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.learn-gen button {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.learn-note {
+  display: block;
+  padding: 0 10px 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-height: 14px;
+}
+
+/* ---------------- 右栏 ---------------- */
+
+.learn-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.learn-body {
+  flex: 1;
+  overflow: auto;
+  padding: 26px 34px;
+  line-height: 1.75;
+}
+
+.learn-body h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.learn-body h2 {
+  margin: 26px 0 10px;
+  font-size: 18px;
+}
+
+.learn-body h3 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+}
+
+.learn-body p {
+  margin: 9px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.learn-body ul,
+.learn-body ol {
+  margin: 9px 0;
+  padding-left: 22px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.learn-body li {
+  margin: 4px 0;
+}
+
+.learn-lead {
+  color: var(--text-muted) !important;
+}
+
+.learn-body .codeblock {
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+.learn-body .codeblock-head {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.learn-body .codeblock-lang {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.learn-body pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.learn-body .note,
+.learn-body .exercise {
+  margin: 14px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.learn-body .note-title {
+  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.learn-body .tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.learn-body .tag {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.learn-body table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.learn-body th,
+.learn-body td {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+/* ---------------- 提问区 ---------------- */
+
+.learn-ask {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.learn-answers {
+  max-height: 240px;
+  overflow: auto;
+  padding: 12px 34px;
+}
+
+.learn-answers:empty {
+  padding: 0;
+}
+
+.learn-qa {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.learn-qa:last-child {
+  border-bottom: 0;
+}
+
+.learn-qa > b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.learn-qa > div {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.learn-ask-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 34px 14px;
+}
+
+.learn-ask-row textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 140px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  resize: none;
+}
+
+.learn-ask-row textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.learn-ask-row button {
+  flex: none;
+  padding: 0 20px;
+}

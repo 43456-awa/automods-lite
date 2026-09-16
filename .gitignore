@@ -6,6 +6,7 @@ workspace/
 chapters/
 memory.json
 memory-store.json
+usage.json
 node_modules/
 *.log
 .DS_Store

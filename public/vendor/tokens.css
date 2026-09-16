@@ -1,0 +1,236 @@
+/* AutoMods 共享设计令牌
+ *
+ * 在这个文件出现之前，simple / profile / recharge / studio / activity /
+ * workbench 每张样式表都自带一套 :root，同名变量取值互不相同——光"主绿"
+ * 就有 #51a934 / #72c44b / #4f9f36 / #4ca735 / #35792a / #397c2a 六个版本，
+ * 所以页面之间看着不像同一个产品。这里收敛成唯一一套。
+ *
+ * 语义层的取值直接沿用 styles.css（工作台）原有的那套：它是唯一逐项验算过
+ * WCAG AA 对比度并留下推导注释的配色，其余几套都是各自复制后手改出来的。
+ * 因此工作台在接入本文件后应当像素级不变，可以用截图回归验证令牌层是否抄错。
+ *
+ * 加载顺序：必须排在页面自己的样式表之前，页面样式仍可按需覆盖。
+ *
+ * 分三层：
+ *   1. 语义令牌 —— 新代码只用这一层
+ *   2. 等级色   —— 铁锭/金锭/钻石/下界之星，与充值套餐和会员标识对应
+ *   3. 兼容别名 —— 老样式表里的历史变量名，指向第 1 层，逐页迁移完即可删除
+ */
+
+/* ==================================================================
+   1. 语义令牌 · 浅色
+   ================================================================== */
+
+:root,
+html[data-theme="light"] {
+  /* 中性色偏一点绿，与简洁模式同源，两个模式来回切不会有色温跳变。 */
+  --page: #f8faf7;
+  --surface: #ffffff;
+  --surface-alt: #fbfcfa;
+  --surface-sunken: #f2f5f0;
+  --surface-hover: #eef2ec;
+  --surface-active: #e5ebe2;
+  --border: #e2e7df;
+  --border-subtle: #edf0ea;
+  --border-strong: #cbd3c6;
+  --border-hover: #adb8a7;
+
+  /* 弱化文字在白底与页底上都要过 WCAG AA 4.5:1，所以比简洁模式原来的 #778074 更深。 */
+  --text: #172016;
+  --text-secondary: #4c5749;
+  --text-muted: #666e62;
+
+  /* 这个绿要同时满足两件事：作为文字色对白底过 4.5:1，作为按钮底色配白字也过 4.5:1。
+     再亮一档（#3d8a2c）只有 4.31:1，"发送"按钮和链接就会踩线。 */
+  --accent: #35792a;
+  --accent-hover: #2d6923;
+  --accent-active: #255a1c;
+  --accent-soft: #eef7ea;
+  --accent-border: #bcdcae;
+  --on-accent: #ffffff;
+  --focus-ring: rgba(61, 138, 44, .3);
+
+  --success: #2f7a3f;
+  --success-soft: #eaf6ec;
+  --success-border: #b7ddbf;
+  --warn: #8a6410;
+  --warn-soft: #fbf4e4;
+  --warn-border: #e6d3a3;
+  --danger: #b3372c;
+  --danger-soft: #fdf1f0;
+  --danger-border: #f0c6c1;
+  --info: #1f5aa8;
+  --info-soft: #eef4fc;
+  --info-border: #c2d8f2;
+
+  /* 游戏化区域：格子、九宫格、模型舞台。浅色下用暖灰石质，避免纯白格子看不出边界。 */
+  --slot: #e8ebe4;
+  --slot-border: #c4ccbd;
+  --slot-inset: rgba(23, 32, 22, .1);
+  --slot-hover: #dbe6d2;
+  --slot-selected: #cfe4c1;
+  --stage: #eef1ea;
+  --stage-grid: rgba(23, 32, 22, .05);
+  --stage-text: #3b463a;
+
+  /* 贴图工坊的透明底棋盘格 */
+  --checker-a: #edf0eb;
+  --checker-b: #fafbf9;
+
+  --radius: 8px;
+  --radius-sm: 6px;
+
+  /* 中文在前的系统字体栈。profile.css 与 recharge.css 原来把 Trebuchet MS 排在
+     首位，导致同一行里拉丁字母走 Trebuchet、汉字走回退字体，字重和字面对不齐。 */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* --shadow-color 供 `box-shadow: 0 8px 26px var(--shadow-color)` 这类
+     自带偏移量的写法使用；--shadow-* 是可直接赋给 box-shadow 的完整值。 */
+  --shadow-color: rgba(23, 32, 22, .1);
+  --shadow-card: 0 1px 2px rgba(23, 32, 22, .05);
+  --shadow-pop: 0 8px 28px rgba(23, 32, 22, .14);
+  --shadow-modal: 0 16px 48px rgba(23, 32, 22, .22);
+  --overlay: rgba(18, 24, 17, .5);
+
+  --titlebar-h: 60px;
+}
+
+/* ==================================================================
+   1b. 语义令牌 · 深色
+   深色不是把浅色反相：底色用带绿的深灰，强调色整体提亮降饱和，
+   否则原来的深绿在暗底上会糊成一团。弱化文字 #8d968a 对 #161a15 为 6.8:1。
+   ================================================================== */
+
+html[data-theme="dark"] {
+  --page: #101410;
+  --surface: #171c17;
+  --surface-alt: #131813;
+  --surface-sunken: #131813;
+  --surface-hover: #1e251d;
+  --surface-active: #273026;
+  --border: #293129;
+  --border-subtle: #202720;
+  --border-strong: #3a453a;
+  --border-hover: #4d5a4c;
+
+  --text: #edf4eb;
+  --text-secondary: #aab5a7;
+  --text-muted: #8d968a;
+
+  --accent: #64bd48;
+  --accent-hover: #74cc58;
+  --accent-active: #83d968;
+  --accent-soft: #172c14;
+  --accent-border: #2e5526;
+  --on-accent: #0a1408;
+  --focus-ring: rgba(100, 189, 72, .34);
+
+  --success: #5fbf78;
+  --success-soft: #142b19;
+  --success-border: #2b5334;
+  --warn: #d5a642;
+  --warn-soft: #2e2714;
+  --warn-border: #574823;
+  --danger: #e8776b;
+  --danger-soft: #321f1d;
+  --danger-border: #6b3832;
+  --info: #6fa0f0;
+  --info-soft: #162033;
+  --info-border: #2c4370;
+
+  --slot: #232a22;
+  --slot-border: #394337;
+  --slot-inset: rgba(0, 0, 0, .4);
+  --slot-hover: #2e3a2b;
+  --slot-selected: #3a4d35;
+  --stage: #12170f;
+  --stage-grid: rgba(255, 255, 255, .045);
+  --stage-text: #c3cfbe;
+
+  --checker-a: #1a201a;
+  --checker-b: #141814;
+
+  --shadow-color: rgba(0, 0, 0, .45);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, .45);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, .55);
+  --overlay: rgba(0, 0, 0, .66);
+}
+
+/* ==================================================================
+   2. 会员等级色
+   充值套餐、个人中心的等级标识、模型解锁提示共用这一组，避免同一个
+   "金锭"在三个页面是三种黄。浅色下取到对白底 4.5:1 以上的深度。
+   ================================================================== */
+
+:root,
+html[data-theme="light"] {
+  --tier-stone: #6b7469;
+  --tier-iron: #5c6b78;
+  /* 更亮的 #a67510 作为小字只有 3.69:1；金色本身偏暗，压到与 --warn 同深度
+     才能在白底和沉底上都过 4.5:1。需要"亮金"观感的地方请用作背景而非文字色。 */
+  --tier-gold: #8a6410;
+  --tier-diamond: #10707a;
+  --tier-nether: #6f4a97;
+}
+
+html[data-theme="dark"] {
+  --tier-stone: #a3ada0;
+  --tier-iron: #9fb3c4;
+  --tier-gold: #f0bd4d;
+  --tier-diamond: #4fc9d2;
+  --tier-nether: #b08ede;
+}
+
+/* ==================================================================
+   3. 兼容别名
+   老样式表里的历史变量名。别名声明在 <html> 上，而深色覆盖同样作用于
+   <html>，因此 var() 取值会随主题自动跟随，不需要为深色再写一遍。
+   页面迁移到语义令牌后，对应的别名即可删除。
+   ================================================================== */
+
+:root {
+  /* simple.css / studio.css / profile*.css / recharge.css / activity.css */
+  --bg: var(--page);
+  --panel: var(--surface);
+  --panel2: var(--surface-sunken);
+  --panel-2: var(--surface-sunken);
+  --side: var(--surface-alt);
+  --line: var(--border);
+  --muted: var(--text-muted);
+  --soft: var(--accent-soft);
+  --green: var(--accent);
+  --green2: var(--accent-hover);
+  --green-hover: var(--accent-hover);
+  --green-soft: var(--accent-soft);
+  --bad: var(--danger);
+  --red: var(--danger);
+  /* 个人中心用 --gold 给统计数字和等级名上色，浅色下它原本就是绿（#438f2d），
+     并非真金色；充值页才是真金。别名跟随前者，充值页改为显式引用 --tier-gold。 */
+  --gold: var(--accent);
+  --cyan: var(--info);
+  --shadow: var(--shadow-pop);
+
+  /* 此前从未被任何样式表声明，等于失效：
+     --shadow-sm 见 styles.css 的粒子监视器，--surface-soft 见微信登录卡，
+     --text-primary 见后台表格，--bad 让后台经济表的亏损值失去红色。 */
+  --shadow-sm: var(--shadow-card);
+  --surface-soft: var(--accent-soft);
+  --text-primary: var(--text);
+
+  /* activity.css 自带 --act- 前缀的一套 */
+  --act-bg: var(--page);
+  --act-panel: var(--surface);
+  --act-soft: var(--accent-soft);
+  --act-line: var(--border);
+  --act-text: var(--text);
+  --act-muted: var(--text-muted);
+  --act-green: var(--accent);
+  --act-green2: var(--accent-hover);
+  --act-gold: var(--tier-gold);
+  --act-bad: var(--danger);
+  --act-shadow: var(--shadow-pop);
+}

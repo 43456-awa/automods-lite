@@ -1,186 +1,249 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>automods-lite · 学习 + 工作台</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="viewport"
+        content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content" />
+  <title>AutoMods · 对话制作</title>
+  <link rel="icon" type="image/png" href="/assets/blockforge-logo.png" />
+  <!-- 皮肤层与主站同源：/vendor 下放的是 automods.cn 线上那几份，外观保持一致 -->
+  <script src="/vendor/skin.js"></script>
+  <script src="/vendor/mc-icons.js"></script>
+  <link rel="stylesheet" href="/vendor/tokens.css" />
+  <link rel="stylesheet" href="/vendor/simple.css" />
+  <link rel="stylesheet" href="/vendor/wechat-auth.css" />
+  <link rel="stylesheet" href="/vendor/hx.css" />
+  <script>
+    try {
+      var saved = localStorage.getItem('blockforge.theme');
+      if (saved === 'dark' || saved === 'light') document.documentElement.dataset.theme = saved;
+    } catch (error) { /* 隐私模式下忽略 */ }
+  </script>
+  <link rel="stylesheet" href="/vendor/mobile.css" />
+  <link rel="stylesheet" href="/vendor/skins.css" />
+  <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
-  <div class="app" id="app">
+  <!-- 启动页：主站这里是微信扫码，本地版换成"本机就绪"卡，布局与文案位置不变 -->
+  <section class="login-view" id="loginView" hidden>
+    <div class="login-layout">
+      <div class="login-pitch">
+        <img class="cube-logo" src="/assets/blockforge-logo.png" alt="AutoMods Logo" />
+        <h1>用对话做一个真能玩的<br />Minecraft 模组</h1>
+        <p>一句话说清想法，AI 边做边把每一步给你看：读了哪个文件、改了什么、编译过没过，产物随时下载。</p>
+        <ul class="login-points">
+          <li><b>连续对话</b><span>做完一版接着提要求，它记得前面做过什么</span></li>
+          <li><b>过程透明</b><span>工具调用、检查结果、编译日志都在页面上</span></li>
+          <li><b>产物可取走</b><span>jar、源码、贴图、模型都在右边</span></li>
+        </ul>
+        <div class="login-loaders" aria-label="支持的加载器">
+          <img src="/assets/loaders/fabric.png" alt="Fabric" /><span>Fabric</span>
+          <img src="/assets/loaders/forge.png" alt="Forge" /><span>Forge</span>
+          <img src="/assets/loaders/neoforge.png" alt="NeoForge" /><span>NeoForge</span>
+        </div>
+      </div>
+      <section class="login-card">
+        <h2>本机工作台</h2>
+        <p id="loginSub">不用登录，直接进</p>
+        <div class="wechat-login" id="hxWechatLogin">
+          <div class="local-ready">
+            <div class="local-ready-row">
+              <i class="mc-ico" data-mc-icon="chest"></i>
+              <div>
+                <b>接口密钥</b>
+                <small id="readyKeyState">检查中…</small>
+              </div>
+              <span class="local-dot" id="readyKeyDot"></span>
+            </div>
+            <div class="local-ready-row">
+              <i class="mc-ico" data-mc-icon="cube"></i>
+              <div>
+                <b>模型</b>
+                <small id="readyModelState">检查中…</small>
+              </div>
+              <span class="local-dot" id="readyModelDot"></span>
+            </div>
+            <div class="local-ready-row">
+              <i class="mc-ico" data-mc-icon="hammer"></i>
+              <div>
+                <b>编译环境</b>
+                <small id="readyGradleState">检测中…</small>
+              </div>
+              <span class="local-dot" id="readyGradleDot"></span>
+            </div>
+          </div>
+        </div>
+        <button class="primary login-enter" id="loginEnter" type="button">进入工作台</button>
+        <button class="login-settings" id="loginSettings" type="button">先去填密钥和模型</button>
+        <div class="login-gift"><b>数据全在你自己电脑上</b><span>工程、对话、配置都不出本机</span></div>
+        <small class="login-agreement">本地版 · AutoMods Lite v<span id="loginVersion">0.0.0</span></small>
+      </section>
+    </div>
+  </section>
+
+  <div class="shell" id="appView" hidden>
     <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">◆</div>
-        <div>
-          <div class="brand-title">automods-lite</div>
-          <div class="brand-sub">学习 + 工作台 · v0.3</div>
-        </div>
+      <header><div class="history-icon">↩</div><b>历史项目</b>
+        <button class="icon" id="collapseSide" type="button" title="收起项目栏">‹</button>
+      </header>
+      <div class="create-actions">
+        <button class="new-project" id="newProject" type="button">＋ 新建模组</button>
+        <a class="new-project asset-create texture-create" id="newTexture" href="#texture"><i class="mc-ico" data-mc-icon="brush"></i> 贴图</a>
+        <a class="new-project asset-create model-create" id="modelEntry" href="#model"><i class="mc-ico" data-mc-icon="cube"></i> 建模</a>
+        <a class="new-project asset-create market-create" id="marketEntry" href="#market" hidden><i class="mc-ico" data-mc-icon="chest"></i> 模型市场</a>
+        <a class="new-project asset-create assets-create" id="assetsEntry" href="#assets" hidden><i class="mc-ico" data-mc-icon="bag"></i> 我的资产</a>
+        <a class="new-project asset-create learn-create" id="learnEntry" href="/learn.html" target="_blank" rel="noopener"><i class="mc-ico" data-mc-icon="book"></i> 教程</a>
       </div>
-
-      <div class="mode-switch" role="tablist">
-        <button type="button" class="mode-btn is-active" data-mode="learn" role="tab" aria-selected="true">学习</button>
-        <button type="button" class="mode-btn" data-mode="bench" role="tab" aria-selected="false">工作台</button>
-      </div>
-
-      <!-- 学习侧栏 -->
-      <div class="side-panel" id="learnSide">
-        <button type="button" class="btn btn-primary btn-block" id="btnGenChapter">＋ AI 生成章节</button>
-        <div class="section-label">课程</div>
-        <div class="track-list" id="trackList"></div>
-        <div class="sidebar-foot">
-          <button type="button" class="btn btn-ghost btn-block" id="btnChecker">⌘ 代码体检</button>
-          <button type="button" class="btn btn-ghost btn-block" id="btnSettings">⚙ API 设置</button>
-        </div>
-      </div>
-
-      <!-- 工作台侧栏 -->
-      <div class="side-panel" id="benchSide" hidden>
-        <button type="button" class="btn btn-primary btn-block" id="btnNew">＋ 新建对话</button>
-        <div class="section-label">历史</div>
-        <div class="chat-list" id="chatList"></div>
-        <div class="sidebar-foot">
-          <button type="button" class="btn btn-ghost btn-block" id="btnSettings2">⚙ API 设置</button>
-          <p class="foot-note">独立工程 · workspace/projects/</p>
-        </div>
-      </div>
+      <div class="project-list" id="projectList"></div>
+      <div class="sidebar-empty" id="projectEmpty">还没有项目<br />从右边输入一句话开始</div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <button type="button" class="btn btn-icon-only" id="btnMenu" aria-label="菜单">☰</button>
-        <div class="topbar-title" id="pageTitle">NeoForge 模组</div>
-        <small class="project-label" id="projectLabel"></small>
-        <span class="run-flag" id="runFlag">空闲</span>
+        <button class="icon" id="openSide" type="button" title="展开项目栏" hidden>☰</button>
+        <b id="pageTitle">对话制作</b>
+        <button class="hx-id" id="projectId" type="button" hidden
+                title="这条对话的编号，点一下复制。本地版就是工程目录名。"></button>
+        <span class="hx-flag" id="runState">空闲</span>
+        <button class="hx-stop" id="stopButton" type="button" hidden>停止</button>
         <span class="grow"></span>
-        <button type="button" class="btn btn-ghost" id="btnCheckUpdate" title="检查 GitHub 新版本">检查更新</button>
-        <button type="button" class="btn btn-ghost" id="btnClearHistory" hidden title="清理对话历史">清历史</button>
-        <button type="button" class="btn btn-ghost" id="btnFilesMobile" hidden>文件</button>
+        <a class="activity-link" href="#activity" id="activityLink" title="本地版用量与更新">用量</a>
+        <button class="balance" id="balance">-- 次请求</button>
+        <button class="icon" id="themeToggle" title="切换主题">◐</button>
+        <button class="avatar" id="profileButton" title="本机设置">人</button>
       </header>
 
-      <!-- ========== 学习视图 ========== -->
-      <section class="view" id="viewLearn">
-        <div class="learn-layout">
-          <article class="chapter-pane" id="chapterRoot">
-            <div class="hero" id="learnHero">
-              <h1>选一章开始学</h1>
-              <p>NeoForge 分章教程 · Java 基础 · 可用 AI 生成自定义章节。每章底部可提问。</p>
-            </div>
-          </article>
-          <aside class="ask-pane" id="askPane">
-            <header>
-              <h2>本章提问</h2>
-              <small id="askChapterLabel">先选择章节</small>
-            </header>
-            <div class="ask-thread" id="askThread">
-              <div class="empty">没看懂的地方直接问，会带上本章内容回答。</div>
-            </div>
-            <form class="ask-form" id="askForm">
-              <textarea id="askInput" rows="2" placeholder="例如：DeferredRegister 为什么要 register 到 bus？" disabled></textarea>
-              <button type="submit" class="btn btn-primary" id="askSend" disabled>提问</button>
-            </form>
-          </aside>
-        </div>
-      </section>
-
-      <!-- ========== 工作台视图 ========== -->
-      <section class="view" id="viewBench" hidden>
-        <div class="split">
-          <section class="chat-col">
-            <div class="hero" id="hero">
-              <h1>用对话写出 NeoForge 模组文件</h1>
-              <p>流式回复 · 工具写盘 · 可停止 · 可选 Gradle 构建。</p>
-              <div class="starters">
-                <button type="button" data-ask="注册一个叫 ruby 的物品，放进自定义创造栏，并写好中英文语言文件">注册一个物品</button>
-                <button type="button" data-ask="做一个会发光的方块，需要镐子才能挖，并写好模型和 blockstates">做一个发光方块</button>
-                <button type="button" data-ask="搭一个 NeoForge 1.21.1 最小可运行模组骨架：主类、mods.toml、空注册">最小模组骨架</button>
+      <section class="project-view">
+        <div class="project-content has-assets">
+          <div class="chat-column" id="chatColumn">
+            <section class="hero hx-hero" id="hero">
+              <div class="hero-brand">
+                <img class="cube-logo" src="/assets/blockforge-logo.png"
+                     alt="AutoMods Logo" /><h1>AutoMods</h1>
               </div>
-            </div>
-            <div class="conversation" id="conversation"></div>
-            <div class="think-box" id="thinkBox" hidden>
-              <header>
-                <i class="think-dot"></i>
-                <b>正在思考中</b>
-                <span class="grow"></span>
-                <small id="thinkText">连接上游…</small>
-              </header>
-              <pre id="thinkBody" hidden></pre>
-            </div>
-            <div class="dock">
-              <div class="work-card" id="workCard" hidden>
-                <header>
-                  <i class="live" id="liveDot"></i>
-                  <b id="workTitle">正在制作</b>
-                  <small id="workNow"></small>
-                  <span class="grow"></span>
-                  <small id="workCount">0 步</small>
-                  <button type="button" class="btn btn-ghost" id="btnStop" hidden>停止</button>
-                </header>
-                <ul class="steps" id="workSteps"></ul>
-              </div>
-              <form class="composer" id="composer">
-                <div class="composer-toolbar">
-                  <label class="ai-toggle" id="planToggle" title="打开后先拆创意，选完再开工">
-                    <input type="checkbox" id="planSwitch" />
-                    <span class="switch"><i></i></span>
-                    <span class="ai-toggle-copy"><b>AI 构建</b><small id="planToggleHint">关闭 · 原话直接制作</small></span>
-                  </label>
-                  <select id="loaderQuick" title="加载器">
-                    <option value="neoforge">NeoForge</option>
-                    <option value="forge">Forge</option>
-                  </select>
-                  <select id="mcQuick" title="Minecraft 版本">
-                    <option value="1.21.1">1.21.1</option>
-                    <option value="1.21">1.21</option>
-                    <option value="1.20.1">1.20.1</option>
-                    <option value="1.19.2">1.19.2</option>
-                  </select>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btnRefine" title="把想法整理成可开工的需求">优化想法</button>
-                  <span class="grow"></span>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btnMemory" title="让助手记住你的偏好">记忆</button>
+              <p>做 Minecraft 模组就像做一道菜一样简单，把想法通通丢进锅里AI会帮你实现。</p>
+              <div class="hx-starters" id="starters" hidden>
+                <small>不知道从哪开始？点一个试试：</small>
+                <div>
+                  <button type="button" data-ask="做一把会喷火的剑，右键朝面前发射火球"><i class="mc-ico" data-mc-icon="sword"></i> 做一把会喷火的剑</button>
+                  <button type="button" data-ask="加一只会跟着我走的小宠物，右键它会坐下"><i class="mc-ico" data-mc-icon="paw"></i> 加一只会跟着我的宠物</button>
+                  <button type="button" data-ask="加一个会发光的方块，放在地上能照亮周围"><i class="mc-ico" data-mc-icon="lamp"></i> 加一个会发光的方块</button>
+                  <button type="button" data-ask="加一颗吃了能跳很高的浆果，能从树叶里掉出来"><i class="mc-ico" data-mc-icon="berry"></i> 加一颗吃了能跳很高的浆果</button>
                 </div>
-                <textarea id="input" rows="1" placeholder="例如：给模组加一个魔法南瓜灯"></textarea>
-                <div class="composer-bottom">
-                  <small class="hint" id="draftHint"></small>
-                  <span class="grow"></span>
-                  <span class="ctx-wrap">
-                    <span class="ctx-meter" id="ctxMeter" title="点击查看明细">
-                      <b id="ctxText">上下文 0</b>
-                      <i class="ctx-bar"><em id="ctxFill"></em></i>
+              </div>
+            </section>
+            <div class="conversation" id="conversation"></div>
+            <div class="dock">
+              <div class="hx-bench" id="bench" hidden>
+                <div class="hx-bench-panel-host" id="benchPanel"></div>
+              </div>
+
+              <form class="composer" id="composer">
+                <div class="hx-bench-chips" id="benchChips" hidden></div>
+                <div class="hx-xp" id="runBar" hidden>
+                  <button class="hx-xp-track" id="runTrack" type="button"
+                          aria-haspopup="true" aria-expanded="false" title="点一下看制作清单">
+                    <span class="hx-xp-head">
+                      <span class="hx-xp-now" id="runStep"></span>
+                      <b class="hx-xp-level" id="runLevel"></b>
                     </span>
-                    <div class="ctx-pop" id="ctxDetail" hidden></div>
+                    <span class="hx-xp-bar">
+                      <i id="runFill"></i>
+                      <em class="hx-xp-ticks" id="runTicks" aria-hidden="true"></em>
+                    </span>
+                  </button>
+                  <div class="hx-xp-list" id="runList" hidden></div>
+                </div>
+                <div class="hx-pending" id="pendingList" hidden></div>
+                <div class="hx-queue" id="queuePanel" hidden>
+                  <div class="hx-queue-head">
+                    <i class="hx-queue-dot" id="queueDot" aria-hidden="true"></i>
+                    <b id="queueTitle">排队中</b>
+                    <span class="grow"></span>
+                    <button class="hx-queue-cancel" id="queueCancel" type="button">取消排队</button>
+                  </div>
+                  <p class="hx-queue-line" id="queueLine"></p>
+                  <p class="hx-queue-note" id="queueNote"></p>
+                </div>
+                <div class="hx-queue-else" id="queueElse" hidden></div>
+                <div class="hx-outbox" id="outboxList" hidden></div>
+                <div class="composer-input">
+                  <div class="pending-files" id="fileChips" hidden></div>
+                  <textarea id="input" rows="1" placeholder="例如：给模组加一个魔法南瓜灯，右键朝面前发射火球，冷却 3 秒"></textarea>
+                </div>
+                <div class="composer-bottom">
+                  <div class="composer-add" id="vaultAdd">
+                    <button class="hx-attach" id="attachButton" type="button"
+                            aria-haspopup="menu" aria-expanded="false"
+                            title="添加参考图或文件">＋</button>
+                    <div class="add-menu vault-menu" id="vaultMenu" hidden></div>
+                  </div>
+                  <input type="file" id="fileInput" multiple hidden />
+
+                  <button class="hx-mic" id="micButton" type="button" aria-pressed="false"
+                          aria-label="语音输入" title="按一下开始说话，再按一下结束">
+                    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                      <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/>
+                      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                      <path d="M12 18v3M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+
+                  <label class="ai-build-toggle" id="planToggle" hidden
+                         title="打开后先把你这句话拆成一组创意，挑完再选版本开工">
+                    <input type="checkbox" id="planSwitch" />
+                    <span class="ai-build-switch"><i></i></span>
+                    <span class="ai-build-copy"><b>AI 构建</b><small>关闭 · 原话直接制作</small></span>
+                  </label>
+
+                  <div class="composer-model-switch" id="modelSwitch">
+                    <button class="model-switch-trigger" type="button" aria-expanded="false"
+                            aria-label="更换模型与思考深度">
+                      <i aria-hidden="true">✦</i><span>模型</span><small class="model-switch-current">hmod 4.5</small>
+                    </button>
+                    <div class="model-switch-menu" hidden></div>
+                  </div>
+
+                  <div class="composer-model-switch" id="crewSwitch">
+                    <button class="model-switch-trigger" type="button" aria-expanded="false"
+                            aria-label="选择这一轮同时派几个帮手">
+                      <small class="model-switch-current">自动</small>
+                    </button>
+                    <div class="model-switch-menu" hidden></div>
+                  </div>
+
+                  <span class="grow"></span>
+                  <div class="composer-model-switch" id="ctxSwitch">
+                    <button class="model-switch-trigger" type="button" aria-expanded="false"
+                            aria-label="选择上下文长度">
+                      <small class="model-switch-current">272k</small>
+                    </button>
+                    <div class="model-switch-menu" hidden></div>
+                  </div>
+                  <span class="hx-ctx" id="ctxMeter" title="本轮上下文占用">
+                    <b id="ctxText">上下文 0 / 272k</b>
+                    <i><em id="ctxFill"></em></i>
                   </span>
-                  <button type="submit" class="btn btn-primary" id="sendButton">发送</button>
+                  <button class="send" type="submit" id="sendButton"
+                          title="发送（Shift + 回车）">→</button>
                 </div>
               </form>
             </div>
-          </section>
+          </div>
 
-          <aside class="assets" id="assets">
+          <button class="assets-open" id="openAssets" type="button" title="展开资产栏" hidden>
+            <i>◧</i><span>资产</span>
+          </button>
+          <aside class="assets-panel" id="assetsPanel">
             <header>
-              <div>
-                <small id="assetsRoot">workspace/projects/</small>
-                <h2>工程文件</h2>
-              </div>
-              <span id="fileCount">0</span>
-              <button type="button" class="btn btn-ghost btn-sm" id="btnZipProject" title="打包整个工程">下载整包</button>
-              <button type="button" class="btn btn-ghost btn-sm" id="btnBuildJar" title="Gradle build 并发布 rN jar">编译 Jar</button>
-              <button type="button" class="btn btn-icon-only" id="btnRefresh" title="刷新">↻</button>
-              <button type="button" class="btn btn-icon-only assets-close" id="btnCloseAssets" aria-label="关闭">×</button>
+              <div><small>本项目产物</small><h2>资产</h2></div>
+              <span id="assetCount">0 个文件</span>
+              <button class="bundle-get" id="bundleButton" type="button" hidden>下载整包</button>
+              <button class="icon assets-fold" id="collapseAssets" type="button"
+                      title="收起资产栏">›</button>
             </header>
-            <div class="releases" id="releasesBox" hidden>
-              <div class="releases-head">成品 Jar（rN）</div>
-              <div id="releasesList"></div>
-            </div>
-            <div class="file-list" id="fileList">
-              <div class="empty">发送第一条消息后会创建独立工程目录。</div>
-            </div>
-            <div class="file-preview" id="filePreview" hidden>
-              <header>
-                <b id="previewPath"></b>
-                <a class="btn btn-ghost" id="btnDownload" download>下载</a>
-                <button type="button" class="btn btn-ghost" id="btnClosePreview">关闭</button>
-              </header>
-              <pre id="previewCode"></pre>
+            <div id="assetContent">
+              <p class="assets-empty">还没有产物。<br />AI 写出代码、贴图和模型后会出现在这里。</p>
             </div>
           </aside>
         </div>
@@ -188,265 +251,164 @@
     </main>
   </div>
 
-  <!-- 生成章节弹窗 -->
-  <div class="modal" id="genModal" hidden>
-    <section>
-      <header>
-        <h2>AI 生成章节</h2>
-        <button type="button" class="btn btn-icon-only" id="btnCloseGen">×</button>
-      </header>
-      <form id="genForm">
-        <div class="form-scroll">
-        <label>想学什么主题？
-          <textarea id="genTopic" rows="3" placeholder="例如：怎么生成自定义群系 / 怎么做自定义生物 AI / 数据包战利品表"></textarea>
-        </label>
-        <div id="genStatus" class="gen-status" hidden></div>
-        </div>
-        <footer>
-          <button type="button" class="btn btn-ghost" id="btnCancelGen">取消</button>
-          <button type="submit" class="btn btn-primary" id="btnStartGen">生成</button>
-        </footer>
-      </form>
-    </section>
-  </div>
-
-  <!-- AI 构建规划 -->
-  <div class="modal plan-modal" id="planModal" hidden>
-    <section class="plan-section">
-      <header>
-        <div>
-          <small>AI 极速规划</small>
-          <h2 id="planTitle">模组规划</h2>
-          <p id="planCount" class="hint-line">点卡片加入想法池，再确定构建</p>
-        </div>
-        <button type="button" class="btn btn-icon-only" id="btnClosePlan">×</button>
-      </header>
-      <div class="form-scroll" id="planBody">
-        <div class="empty-state">正在生成创意…</div>
+  <!-- 首次进入的整页引导 -->
+  <section class="hx-onboarding" id="onboarding" role="dialog" aria-modal="true"
+           aria-labelledby="onboardingTitle" hidden>
+    <div class="hx-onboarding-curtain" aria-hidden="true"></div>
+    <div class="hx-role-pick" id="rolePick">
+      <p class="hx-role-kicker">第一次来到 AutoMods</p>
+      <h2 id="onboardingTitle">你想怎么开始？</h2>
+      <div class="hx-role-cards">
+        <button class="hx-role-card" type="button" data-level="novice">
+          <i class="mc-ico role-ico" data-mc-icon="grass"></i>
+          <b>我是新手</b>
+          <small>带我看看这里都能做什么</small>
+        </button>
+        <button class="hx-role-card" type="button" data-level="veteran">
+          <i class="mc-ico role-ico" data-mc-icon="diamond"></i>
+          <b>我是老手</b>
+          <small>直接进入，马上开始制作</small>
+        </button>
       </div>
-      <footer>
-        <button type="button" class="btn btn-ghost" id="btnCancelPlan">取消</button>
-        <button type="button" class="btn btn-ghost" id="btnPlanSendRaw">不选了，原话开工</button>
-        <button type="button" class="btn btn-primary" id="btnPlanBuild">确定构建</button>
+    </div>
+
+    <div class="hx-tour" id="tour" hidden>
+      <i class="hx-tour-shade shade-top" aria-hidden="true"></i>
+      <i class="hx-tour-shade shade-right" aria-hidden="true"></i>
+      <i class="hx-tour-shade shade-bottom" aria-hidden="true"></i>
+      <i class="hx-tour-shade shade-left" aria-hidden="true"></i>
+      <div class="hx-tour-focus" id="tourFocus" aria-hidden="true"></div>
+      <article class="hx-tour-card" id="tourCard">
+        <header><small id="tourCount"></small><button id="tourSkip" type="button">跳过教学</button></header>
+        <h2 id="tourTitle"></h2>
+        <p id="tourCopy"></p>
+        <footer>
+          <button id="tourBack" type="button">上一步</button>
+          <span id="tourDots" aria-hidden="true"></span>
+          <button class="primary" id="tourNext" type="button">下一步</button>
+        </footer>
+      </article>
+    </div>
+  </section>
+
+  <!-- 第一句话之前问清楚做哪个版本 -->
+  <div class="modal build-config-dialog" id="setupDialog" role="dialog" aria-modal="true"
+       aria-labelledby="setupTitle" hidden>
+    <section>
+      <header class="build-dialog-head">
+        <div><small>开工之前</small><h2 id="setupTitle">选择构建配置</h2></div>
+        <p>选择游戏版本、加载器与 AI 档位，确认后这句话就交给 AI 开始制作。</p>
+      </header>
+      <div id="setupContent"></div>
+      <footer class="modal-actions">
+        <button id="setupCancel" type="button">取消</button>
+        <button class="primary" id="setupConfirm" type="button">开始制作</button>
       </footer>
     </section>
   </div>
 
-  <!-- 记忆 -->
-  <div class="modal" id="memoryModal" hidden>
-    <section class="plan-section">
-      <header>
-        <div>
-          <small>事实记忆 · 可检索</small>
-          <h2>制作记忆</h2>
-          <p class="hint-line">自动从对话提炼，也可手动添加；注入时按本轮话题检索</p>
-        </div>
-        <button type="button" class="btn btn-icon-only" id="btnCloseMemory">×</button>
+  <!-- 想法池：AI 把需求拆成一组创意，用户挑进池子，最后一起交给它做 -->
+  <div class="modal plan-dialog" id="planDialog" role="dialog" aria-modal="true"
+       aria-labelledby="planTitle" hidden>
+    <section>
+      <header class="build-dialog-head">
+        <div><small>AI 极速规划</small><h2 id="planTitle">模组规划</h2></div>
+        <p id="planCount">先说说你想做什么，AI 会拆成一组创意任你挑</p>
       </header>
-      <div class="form-scroll">
-        <div class="mem-add">
-          <select id="memKind">
-            <option value="fact">事实</option>
-            <option value="project">项目</option>
-            <option value="pref">偏好</option>
-            <option value="style">风格</option>
-            <option value="avoid">避免</option>
-          </select>
-          <input id="memText" type="text" placeholder="例如：始终用 NeoForge 1.21.1，包名 com.example.studymod" />
-          <button type="button" class="btn btn-primary btn-sm" id="btnMemAdd">添加</button>
-        </div>
-        <div class="mem-tools">
-          <input id="memSearch" type="search" placeholder="搜索记忆…" />
-          <button type="button" class="btn btn-ghost btn-sm" id="btnMemRefresh">刷新</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btnMemClear">清空</button>
-        </div>
-        <div class="mem-list" id="memList">
-          <div class="empty-state">暂无记忆</div>
-        </div>
+      <div class="plan-ask" id="planAsk">
+        <textarea id="planInput" rows="3"
+                  placeholder="例如：做一个魔法主题模组，有法杖、法术书和一个 Boss"></textarea>
+        <button class="primary" id="planGo" type="button">生成创意</button>
       </div>
-      <footer>
-        <button type="button" class="btn btn-primary" id="btnCancelMemory">关闭</button>
+      <div class="plan-loading" id="planLoading" hidden>
+        <i></i><b>AI 正在一次性拆解完整需求</b><small>正在生成玩法、数值、美术和资源方案…</small>
+      </div>
+      <div id="planContent"></div>
+      <footer class="modal-actions">
+        <button id="planCancel" type="button">取消</button>
+        <button class="primary" id="planBuild" type="button" hidden>确定构建</button>
       </footer>
     </section>
   </div>
 
-  <!-- 设置 -->
-  <div class="modal" id="settingsModal" hidden>
+  <!-- 老工程改 mod 标识 -->
+  <div class="modal rename-dialog" id="renameDialog" role="dialog" aria-modal="true"
+       aria-labelledby="renameTitle" hidden>
     <section>
-      <header>
-        <h2>API / Gradle 设置</h2>
-        <button type="button" class="btn btn-icon-only" id="btnCloseSettings">×</button>
+      <header class="build-dialog-head">
+        <div><small>老工程</small><h2 id="renameTitle">给这个模组改一个自己的标识</h2></div>
+        <p>现在的标识是 <b id="renameNow">generated_mod</b>，那是平台早先给所有模组的
+           默认名。两个默认名一样的模组装进同一个游戏，加载器会悄悄只认一个。</p>
       </header>
-      <form id="settingsForm">
-        <div class="form-scroll">
-        <label>Base URL
-          <input name="baseUrl" placeholder="https://api.deepseek.com/v1" autocomplete="off" />
+      <div id="renameContent">
+        <label class="rename-field">
+          <span>新的标识</span>
+          <input id="renameInput" type="text" maxlength="24" spellcheck="false"
+                 autocomplete="off" placeholder="例如 fireball_torch" />
+          <small>小写字母、数字、下划线，以字母开头。</small>
         </label>
-        <label>API Key
-          <input name="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-          <small id="keyHint"></small>
-        </label>
-        <label>模型
-          <div class="row-inline">
-            <input name="model" id="modelInput" placeholder="deepseek-chat" autocomplete="off" list="modelPresets" />
-            <button type="button" class="btn btn-ghost" id="btnFetchModels">获取列表</button>
-          </div>
-          <datalist id="modelPresets">
-            <option value="deepseek-chat">DeepSeek 对话（便宜快）</option>
-            <option value="deepseek-reasoner">DeepSeek 思考（R1）</option>
-            <option value="gpt-4o-mini">OpenAI 兼容中转</option>
-            <option value="gpt-4o">OpenAI 兼容中转</option>
-            <option value="qwen-plus">通义千问</option>
-            <option value="glm-4-flash">智谱 GLM</option>
-          </datalist>
-          <div id="modelList" class="model-list" hidden></div>
-          <small class="hint-line">「获取列表」后点下方模型名直接填入；也可点输入框倒三角。</small>
-        </label>
-        <div class="grid2">
-          <label>推理强度
-            <select name="reasoningEffort">
-              <option value="off">关闭</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
-              <option value="max">max</option>
-            </select>
-            <small class="hint-line">会映射到上游思考参数；不支持的模型请选「关闭」。</small>
-          </label>
-          <label>上下文窗口
-            <select name="contextWindow">
-              <option value="16k">约 16k（省 token）</option>
-              <option value="32k">约 32k</option>
-              <option value="64k" selected>约 64k</option>
-              <option value="128k">约 128k</option>
-              <option value="200k">约 200k</option>
-              <option value="1m">约 1M</option>
-            </select>
-            <small class="hint-line">控制每次带多少旧对话；真正上限由模型决定。</small>
-          </label>
+        <div class="rename-warn">
+          <b>改之前请看清楚，这两件事一定会发生：</b>
+          <ul>
+            <li><b>你用这个模组在存档里放下的方块和物品，下次进世界会变成空气，直接没了。</b></li>
+            <li><b>已经发给别人的 jar 要重新发一遍。</b></li>
+          </ul>
         </div>
-
-        <details class="adv-block">
-          <summary>高级参数（可选）</summary>
-          <div class="grid3">
-            <label>温度
-              <input name="temperature" type="number" step="0.1" min="0" max="2" placeholder="0.4" />
-            </label>
-            <label>top_p
-              <input name="topP" type="number" step="0.05" min="0" max="1" placeholder="1" />
-            </label>
-            <label>最大输出 tokens
-              <input name="maxTokens" type="number" min="256" max="131072" placeholder="32768" />
-            </label>
-          </div>
-          <div class="grid2">
-            <label>思考字段映射
-              <select name="reasoningStyle">
-                <option value="auto">自动识别</option>
-                <option value="openai">OpenAI reasoning_effort</option>
-                <option value="qwen">通义 enable_thinking</option>
-                <option value="gemini">Gemini thinking</option>
-                <option value="none">不发送</option>
-              </select>
-            </label>
-            <label>历史条数（覆盖窗口）
-              <input name="historyLimit" type="number" min="8" max="400" placeholder="36" />
-            </label>
-          </div>
-          <div class="grid2">
-            <label>上游超时（秒）
-              <input name="apiTimeoutSec" type="number" min="15" max="600" placeholder="180" />
-            </label>
-            <label>限流重试次数
-              <input name="apiRetries" type="number" min="0" max="8" placeholder="4" />
-            </label>
-          </div>
-          <label class="check-row">
-            <input type="checkbox" name="autoMemory" checked />
-            <span>对话结束后自动总结制作记忆（写入 memory.json）</span>
-          </label>
-        </details>
-
-        <div class="grid2">
-          <label>加载器
-            <select name="loader">
-              <option value="neoforge">NeoForge</option>
-              <option value="forge">Forge</option>
-            </select>
-          </label>
-          <label>Minecraft
-            <input name="mcVersion" placeholder="1.21.1" autocomplete="off" list="mcPresets" />
-            <datalist id="mcPresets">
-              <option value="1.21.1"></option>
-              <option value="1.21"></option>
-              <option value="1.20.1"></option>
-              <option value="1.19.2"></option>
-            </datalist>
-          </label>
-        </div>
-        <label>modId
-          <input name="modId" placeholder="mymod" autocomplete="off" />
+        <label class="rename-ack">
+          <input id="renameAck" type="checkbox" />
+          <span>我知道旧存档里的方块会失效，也知道要重新发一遍 jar</span>
         </label>
-        <label>工程名
-          <input name="workspaceName" placeholder="MyNeoForgeMod" autocomplete="off" />
-        </label>
-        <label>Gradle 命令（可选）
-          <input name="gradleCmd" placeholder="留空则用工程内 gradlew" autocomplete="off" />
-        </label>
-        <label>GitHub 仓库（自动更新用）
-          <input name="updateRepo" placeholder="用户名/仓库名，例如 43456-awa/automods-lite" autocomplete="off" />
-        </label>
-        <div class="grid2">
-          <label>构建超时（秒）
-            <input name="gradleTimeoutSec" type="number" min="30" max="900" placeholder="180" />
-          </label>
-        </div>
-        <p class="note">Key 只写在本机 <code>config.json</code>。</p>
-        </div>
-        <footer>
-          <button type="button" class="btn btn-ghost" id="btnCancelSettings">取消</button>
-          <button type="submit" class="btn btn-primary">保存</button>
-        </footer>
-      </form>
+        <div class="rename-live" id="renameLive" hidden></div>
+      </div>
+      <footer class="modal-actions">
+        <button id="renameCancel" type="button">取消</button>
+        <button class="primary" id="renameGo" type="button" disabled>确认改名</button>
+      </footer>
     </section>
   </div>
 
-  <!-- 代码体检抽屉 -->
-  <aside class="checker" id="checker" aria-hidden="true" aria-label="代码体检">
-    <div class="checker-head">
-      <div>
-        <div class="checker-title">代码体检</div>
-        <div class="checker-sub">NeoForge 1.21.1 常见规范检查</div>
-      </div>
-      <button type="button" class="btn btn-icon-only" id="btnCloseChecker">✕</button>
-    </div>
-    <div class="checker-body">
-      <div class="checker-tabs" role="tablist">
-        <button type="button" class="tab is-active" data-lang="java">Java</button>
-        <button type="button" class="tab" data-lang="json">JSON</button>
-        <button type="button" class="tab" data-lang="toml">TOML</button>
-      </div>
-      <label class="field">
-        <span class="field-label">粘贴代码</span>
-        <textarea id="codeInput" spellcheck="false" rows="12" placeholder="粘贴本章练习代码…"></textarea>
-      </label>
-      <div class="checker-actions">
-        <button type="button" class="btn btn-primary" id="btnRunCheck">开始检查</button>
-        <button type="button" class="btn btn-ghost" id="btnClearCheck">清空</button>
-        <span class="check-hint" id="checkHint">0 行</span>
-      </div>
-      <div class="check-results" id="checkResults">
-        <div class="empty-state">粘贴后点「开始检查」。</div>
-      </div>
-    </div>
-  </aside>
+  <div class="announcement-dialog" id="announcementDialog" role="dialog" aria-modal="true"
+       aria-labelledby="announcementTitle" hidden>
+    <section>
+      <header><span id="announcementTone">本机提示</span><small id="announcementProgress"></small></header>
+      <h2 id="announcementTitle"></h2>
+      <strong id="announcementSummary" hidden></strong>
+      <div class="announcement-content" id="announcementContent"></div>
+      <footer>
+        <button id="announcementLater" type="button" hidden>稍后阅读</button>
+        <a id="announcementLink" target="_blank" rel="noopener noreferrer" hidden></a>
+        <button class="primary" id="announcementConfirm" type="button">我已阅读</button>
+      </footer>
+    </section>
+  </div>
 
-  <div class="backdrop" id="backdrop" hidden></div>
+  <!-- 本机设置：主站这里是"个人中心"，本地版换成连哪台上游、用什么模型 -->
+  <div class="modal settings-dialog" id="settingsDialog" role="dialog" aria-modal="true"
+       aria-labelledby="settingsTitle" hidden>
+    <section>
+      <header class="build-dialog-head">
+        <div><small>本机设置</small><h2 id="settingsTitle">连接与模型</h2></div>
+        <p>这些内容只写进本机的 <code>config.json</code>，不会发到任何别的地方。</p>
+      </header>
+      <div id="settingsContent" class="settings-body"></div>
+      <footer class="modal-actions">
+        <button id="settingsCancel" type="button">取消</button>
+        <button id="settingsCheck" type="button">检查更新</button>
+        <button class="primary" id="settingsSave" type="button">保存</button>
+      </footer>
+    </section>
+  </div>
+
+  <template id="tipTemplate">
+    <div class="hx-tipcard" role="note">
+      <i aria-hidden="true">💡</i>
+      <p></p>
+      <button type="button" title="知道了" aria-label="知道了">×</button>
+    </div>
+  </template>
+
   <div class="toast" id="toast" hidden></div>
-
-  <script src="checker.js"></script>
-  <script src="learn.js"></script>
-  <script src="app.js"></script>
+  <script src="/app.js"></script>
+  <script src="/vendor/mobile.js"></script>
 </body>
 </html>

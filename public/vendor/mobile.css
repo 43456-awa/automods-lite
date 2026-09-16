@@ -1,0 +1,620 @@
+/* ===========================================================================
+   手机版样式层
+
+   桌面端必须一个像素都不动，所以除了开头那条给新元素兜底的规则，整份文件都关在
+   @media 里。这一层只做重排和补齐，不改任何功能：能点的还是原来那些按钮，只是
+   挪到了手机上够得着的地方。
+
+   参照的是手机 App 的通行做法：
+     · 顶栏一条 52px，左边汉堡、中间标题、右边账号，别的都收起来
+     · 侧栏改成从左边推出来的抽屉，压一层蒙版，点空白/按返回键就退回去
+     · 右边那栏产物改成底部弹层，平时不占地方，要看的时候拉上来
+     · 输入框吸在底部，垫上刘海屏的安全区
+     · 能点的地方一律不小于 40px，输入框字号不小于 16px（小于 16 苹果会自动放大整页）
+   =========================================================================== */
+
+/* 这几个是脚本在手机上才建的元素。桌面上不该出现——从手机尺寸拖回大屏时，
+   元素还在 DOM 里，靠这条兜住。 */
+.m-scrim, .m-menu, .m-assets, .m-title, .m-drawer-foot, .m-sheet-grab, .m-sheet-close {
+  display: none;
+}
+
+/* 断点为什么是两条：
+     · 竖着拿手机 —— 宽度不超过 820px
+     · 横过来拿   —— 宽度一下子变成 844/932，超过 820 了，但高度只剩 390，
+                     桌面那套「聊天列最矮 520px」直接把输入框顶到屏幕外面去。
+   所以再加一条按高度的。pointer: coarse 把它限定在手指操作的设备上——不然把电脑
+   窗口拖矮一点，桌面版也会莫名其妙变成手机版。 */
+@media (max-width: 820px), (max-height: 520px) and (pointer: coarse) {
+
+  /* ---------------------------------------------------------------- 通盘 */
+
+  :root {
+    --m-bar: 52px;
+    --m-safe-b: env(safe-area-inset-bottom, 0px);
+    --m-safe-t: env(safe-area-inset-top, 0px);
+    /* 活动条整条就是一个链接，34px 高手指点着偏薄，抬到 40 */
+    --public-event-banner-h: 40px;
+  }
+
+  /* 苹果的规矩：输入控件字号小于 16px，一点进去整页就被放大，而且退不回来。 */
+  input, textarea, select { font-size: 16px }
+
+  /* 长按选中和点击闪蓝框在 App 里都没有，去掉更像原生 */
+  .m-menu, .m-assets, .m-sheet-close, .project-item, .icon, .avatar, .balance {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ========================================================== 没登录那一屏
+
+     桌面是左右两栏：左边讲这站是干嘛的，右边一张扫码卡。手机上两栏摞成上下，
+     扫码卡被推到第二屏——新用户进来看见一堆介绍，看不见入口，得先划一下才知道
+     怎么进。手机 App 的登录页都是"认出是谁 + 马上能进"，所以这里重排成：
+     图标、标题、扫码卡，介绍和加载器放到卡片下面，愿意看的人再往下划。
+
+     .login-pitch 自己只有 min-width 和 text-align，没有背景也没有内边距，所以
+     用 display:contents 把它这层盒子摘掉是安全的——摘掉之后它的三个孩子才能和
+     扫码卡排进同一个 flex 里，按 order 重新排队。 */
+
+  .login-view { padding: 16px 14px calc(22px + var(--m-safe-b)) }
+
+  .login-layout { display: flex; flex-direction: column; gap: 16px }
+
+  .login-pitch { display: contents }
+
+  .login-pitch .cube-logo { order: 1; width: 64px; margin: 0 auto }
+  .login-pitch h1 { order: 2; margin: 0; font-size: 23px; text-align: center }
+  .login-card { order: 3; padding: 20px 16px }
+  .login-pitch > p { order: 4; margin: 0; font-size: 13px }
+  .login-points { order: 5; margin: 0 }
+  .login-loaders { order: 6; padding-top: 14px }
+
+  /* ============================================================ 工作台
+
+     /hx/ 这一页是三栏（项目栏 · 对话 · 产物）。手机上摊不开，改成一屏只放对话，
+     另外两栏收成抽屉和底部弹层。 */
+
+  /* 手机浏览器的地址栏会随滚动收放，100vh 比真正看得见的那块高一截——用 vh 的话
+     输入框会被顶到屏幕外面去。dvh 量的是当前真实可视高度。
+     --m-keys 是软键盘占掉的高度，由 mobile.js 实测后写进来（iOS 上键盘不会让页面
+     自己变矮，不扣掉的话正在打的那行字就在键盘底下）。 */
+  .shell { height: calc(100dvh - var(--m-keys, 0px)) }
+
+  .public-event-banner ~ .shell {
+    height: calc(100dvh - var(--public-event-banner-h) - var(--m-keys, 0px));
+  }
+
+  /* -------------------------------------------------- 项目栏 → 左侧抽屉 */
+
+  /* 顶上那条公测活动条自带 z-index:110。抽屉要是压在它下面，抽屉自己的标题栏就被
+     它盖住了——所以这几层统一排在活动条上面：蒙版 115 < 弹层 118 < 抽屉 120。 */
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 120;
+    width: min(84vw, 320px);
+    /* 桌面靠 margin-left:-276px 收起，手机上换成整体推出屏幕 */
+    margin-left: 0;
+    transform: translateX(-102%);
+    transition: transform .26s cubic-bezier(.4, 0, .2, 1);
+    box-shadow: 6px 0 34px rgba(0, 0, 0, .26);
+    padding-top: var(--m-safe-t);
+    border-right: 1px solid var(--border);
+  }
+
+  .sidebar.closed { margin-left: 0 }
+  body.m-drawer .sidebar { transform: none }
+
+  .sidebar > header { height: 56px; padding: 0 14px }
+  /* 收放交给蒙版和返回键，抽屉里再摆个箭头反而占地方 */
+  .sidebar > header .icon { display: none }
+
+  .create-actions { margin: 12px 12px 10px; gap: 9px }
+  .new-project { padding: 13px 12px }
+
+  .project-list { padding: 0 8px; -webkit-overflow-scrolling: touch }
+  .project-item { padding: 13px 6px 13px 12px; border-radius: 10px }
+  .project-item:active { background: var(--surface-active) }
+
+  /* 置顶 / 归档 / 删除这三个按钮，桌面上是鼠标移上去才冒出来的。手机没有"移上去"
+     这回事，照搬过来等于这三个功能在手机上不存在——所以常驻显示，顺便放大到手指
+     点得中的尺寸。 */
+  .project-actions { display: flex }
+  .project-actions button { width: 36px; height: 36px; font-size: 15px }
+  .pin-mark { font-size: 11px }
+
+  /* 抽屉底下摆一排杂项：主题、预览模式、回到旧版。这些原本挤在顶栏里，
+     手机上顶栏放不下，收到这儿反而好找。 */
+  .m-drawer-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: auto;
+    padding: 10px 12px calc(10px + var(--m-safe-b));
+    border-top: 1px solid var(--border);
+    background: var(--surface-alt, var(--surface));
+  }
+
+  /* 三样东西要挤在 320px 宽的抽屉里排成一行，字号和内边距都得收着点 */
+  .m-drawer-foot .hx-legacy,
+  .m-drawer-foot .workbench-link {
+    margin: 0;
+    padding: 10px 9px;
+    font-size: 12px;
+  }
+
+  .m-drawer-foot .hx-id {
+    order: 9;
+    flex: 1 1 100%;
+    overflow: hidden;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 11px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .m-drawer-foot .icon {
+    order: 8;
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    border: 1px solid var(--border);
+  }
+
+  /* -------------------------------------------------------- 顶栏 → 应用栏 */
+
+  .topbar {
+    position: relative;
+    z-index: 20;
+    height: var(--m-bar);
+    gap: 6px;
+    padding: 0 8px 0 4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .m-menu {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .m-menu:active { background: var(--surface-hover) }
+
+  /* 标题和状态摞成两行：一行放得下的字太少，项目名基本全被截掉 */
+  .m-title {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 1px;
+    line-height: 1.2;
+  }
+
+  .m-title #pageTitle {
+    overflow: hidden;
+    font-size: 15px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .m-title-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  /* 副标题那行就是纯文字，边框和内边距去掉 */
+  .m-title-sub .hx-flag {
+    flex: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 11px;
+  }
+
+  /* 顶栏只留：汉堡 · 标题 · 停止 · 积分 · 头像。其余的进抽屉。 */
+  .topbar > #openSide { display: none }
+
+  .topbar > .activity-link {
+    flex: none;
+    padding: 8px 9px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .topbar > .balance {
+    flex: none;
+    overflow: hidden;
+    max-width: 96px;
+    padding: 8px 9px;
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .topbar > .hx-stop { flex: none; padding: 8px 10px; font-size: 12px }
+  .topbar > .avatar { flex: none; width: 36px; height: 36px }
+  .topbar > .grow { display: none }
+
+  /* --------------------------------------------------------- 对话与输入 */
+
+  /* 1050px 那档给两栏都设了 min-height:520px，手机上会把对话撑出一大截空白，
+     还让整页跟着滚——这里全部收回来，改成一屏之内自己滚。 */
+  .project-view { overflow: hidden }
+
+  .project-content,
+  .project-content.has-assets {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  /* 站里 1050px 那档给聊天列和规划栏各设了 520px 最矮高度。横过来拿手机整屏才
+     390px 高，这条会把输入框直接顶到屏幕外面。 */
+  .chat-column,
+  .planning-panel {
+    height: 100%;
+    min-height: 0;
+    border-right: 0;
+  }
+
+  .conversation {
+    padding: 14px 12px 6px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .message { max-width: 100% }
+  .message.user { max-width: 88% }
+
+  .chat-column > .dock { padding: 8px 10px calc(8px + var(--m-safe-b)) }
+  .chat-column.blank .dock { padding-inline: 12px }
+
+  /* 输入框：两行半起步，写长了自己长，最多占屏幕的四成，剩下的滚。
+     手机屏矮，起步比桌面收着点，再高就把对话挤没了 */
+  .chat-column .dock .composer textarea,
+  .dock .composer textarea {
+    min-height: 60px;
+    max-height: 38dvh;
+    font-size: 16px;
+  }
+
+  .chat-column.blank .dock .composer textarea { min-height: 62px; font-size: 16px }
+
+  /* 一行摆不下六个控件，允许折行；上下文占用条自己占一整行 */
+  .composer-bottom { flex-wrap: wrap; gap: 7px 8px }
+  .composer-bottom .grow { display: none }
+  .hx-ctx { flex: 1 1 100%; min-width: 0; order: 9 }
+  .hx-ctx b { font-size: 10px }
+
+  /* 站里那两条窄屏规则（600px 那条 .model-switch-trigger>small，760px 那条
+     .composer small:not(.ai-build-copy small)）把输入栏里所有 <small> 一律藏了，
+     模型名和智商档位跟着没了——按钮上只剩「模型」两个字，挑完是哪一档看不出来。
+     后一条带 :not()，算下来比 .composer .model-switch-current 还具体，所以这里
+     得把选择器写长一截才压得住。 */
+  .composer .composer-model-switch .model-switch-trigger > small {
+    display: inline;
+    overflow: hidden;
+    max-width: 68px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* hx.css 那条把这两个按钮压到 30px（.chat-column .composer-bottom .hx-attach），
+     选择器比这里长，得写一样长才盖得住 */
+  .chat-column .composer-bottom .hx-attach,
+  .chat-column .composer-bottom .hx-mic,
+  .chat-column .composer-bottom .send { width: 42px; height: 40px }
+
+  .model-switch-trigger { min-height: 40px }
+
+  /* 挑模型、挑档位、加附件这几个下拉菜单是贴着按钮往上弹的，按钮在输入栏中间，
+     菜单 310px 宽——右半边直接飘到屏幕外，最后一项永远选不中。手机上改成贴着
+     屏幕底边铺开的一层，就是各家 App 的操作面板那种。 */
+  .add-menu,
+  .model-switch-menu {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    /* 再加一层 --m-keys：这一层是 fixed，量的是可视视口的底边，而 iOS 上软键盘
+       弹起来并不会让可视视口变矮——不扣掉键盘高度，菜单就整个藏在键盘底下，用户
+       点了「＋」以为没反应。--m-keys 由 mobile.js 实测写进来，键盘收着时是 0。 */
+    bottom: calc(10px + var(--m-safe-b) + var(--m-keys, 0px));
+    z-index: 90;
+    width: auto;
+    max-height: 62dvh;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* 素材气泡在窄屏上跟着铺满，宽度交给上面那条 left/right 管 */
+  .vault-menu { width: auto }
+
+  /* simple.css 那条 `.composer small:not(.ai-build-copy small){display:none}` 是为了
+     窄屏输入栏别被小字撑开，可气泡也在 .composer 里面——素材行第二行（贴图 · 178 KB）
+     跟着一起没了，两个同名素材就分不出哪个是哪个。那条带 :not()，算下来 (0,2,2)，
+     光用类名压不住，只能靠 id 这一档（上面 .model-switch-trigger>small 也是同一个
+     处境，那边是把选择器写长）。 */
+  #vaultMenu small { display: block }
+  /* 一行只放得下四五个筛选，让它自己换行而不是横向滚 */
+  .vault-list { max-height: 42dvh }
+
+  /* 窄屏没有 hover 这一说，「存进仓库」不能靠扫过去才亮；22px 手指也点不准 */
+  .vault-save { opacity: 1; width: 30px; height: 30px }
+
+  /* 还没说第一句话的那一屏：桌面上是「招呼语 + 输入框」整体居中，屏幕不高，看着
+     是稳的。手机竖屏 844 高，照搬过来输入框吊在半腰上，底下空出一大片白——每个
+     手机 App 的输入框都在最底下，手够得着。所以改成输入框贴底，招呼语在上面剩下
+     的那片地方居中（margin 上下都给 auto，它就自己站中间了）。 */
+  .chat-column.blank { justify-content: flex-start }
+
+  .hx-hero { padding-inline: 16px }
+
+  .chat-column.blank .hx-hero {
+    max-height: 240px;
+    margin-block: auto;
+    padding: 10px 16px 14px;
+  }
+  .hero-brand h1 { font-size: 27px }
+  .hero-brand .cube-logo { width: 40px; height: 40px }
+  .hx-hero > p { font-size: 13px; text-align: center }
+
+  /* ------------------------------------------------- 产物栏 → 底部弹层 */
+
+  /* 悬在输入框正上方的一颗胶囊。挂在 .dock 上而不是整个对话区上：对话区的右下角
+     正好是发送键那一排，浮在那儿会把它盖住。 */
+  .m-assets {
+    position: absolute;
+    right: 12px;
+    bottom: 100%;
+    margin-bottom: 6px;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 13px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: var(--shadow-pop);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .m-assets[hidden] { display: none }
+  .m-assets:active { background: var(--surface-hover) }
+  .m-assets i { font-style: normal; color: var(--accent) }
+
+  .m-assets b {
+    min-width: 18px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+  }
+
+  /* 弹层本体。开合只认 body.m-sheet，桌面那套收起类在这儿一律作废，
+     不然「收起状态」会让弹层拉上来也是透明的。 */
+  .assets-panel,
+  .project-content.assets-closed .assets-panel {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 61;
+    height: min(82dvh, 760px);
+    min-height: 0;
+    padding: 0 14px calc(18px + var(--m-safe-b));
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 18px 18px 0 0;
+    background: var(--surface);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, .24);
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(102%);
+    transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+    overscroll-behavior: contain;
+  }
+
+  .assets-panel,
+  .project-content.assets-closed .assets-panel { z-index: 118 }
+
+  body.m-sheet .assets-panel { transform: none }
+
+  /* 弹层里那些行原本是给鼠标用的，手指点不中 */
+  .assets-panel .tree-head,
+  .assets-panel .tree-file > a,
+  .assets-panel .tree-file > button { min-width: 38px; min-height: 40px }
+
+  .bundle-get { min-height: 40px; padding-inline: 12px }
+
+  /* 顶上那根小横条：告诉人这东西能往下拽 */
+  .m-sheet-grab {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 -14px 2px;
+    padding: 9px 0 7px;
+    background: var(--surface);
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .m-sheet-grab::before {
+    content: "";
+    display: block;
+    width: 38px;
+    height: 4px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+
+  .assets-panel > header {
+    position: sticky;
+    top: 20px;
+    z-index: 2;
+    padding-bottom: 10px;
+    background: var(--surface);
+  }
+
+  .m-sheet-close {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  /* 桌面那个贴边小把手和收起箭头，手机上都由弹层自己的横条和叉号接手 */
+  .assets-open, .assets-fold { display: none }
+
+  /* -------------------------------------------------------------- 蒙版 */
+
+  .m-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 115;
+    background: var(--overlay);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .24s ease;
+  }
+
+  body.m-drawer .m-scrim,
+  body.m-sheet .m-scrim { opacity: 1; pointer-events: auto }
+
+  /* 抽屉或弹层开着的时候，底下那层别跟着滚 */
+  body.m-lock { overflow: hidden }
+
+  /* ---------------------------------------------------------- 各种弹窗 */
+
+  /* 手机上的对话框都是从底下升上来、占大半屏，而不是吊在屏幕正中间 */
+  .modal {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .modal > section {
+    width: 100%;
+    max-height: 92dvh;
+    padding-bottom: calc(20px + var(--m-safe-b));
+    border-radius: 18px 18px 0 0;
+    animation: m-rise .26s cubic-bezier(.4, 0, .2, 1);
+  }
+
+  .build-config-dialog > section {
+    max-height: 92dvh;
+    border-width: 3px;
+    border-radius: 18px 18px 0 0;
+    padding: 16px 14px calc(16px + var(--m-safe-b));
+  }
+
+  .modal-actions button { min-height: 44px }
+
+  @keyframes m-rise {
+    from { transform: translateY(16px); opacity: .6 }
+    to { transform: none; opacity: 1 }
+  }
+
+  .announcement-dialog > section { padding-bottom: var(--m-safe-b) }
+
+  .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(16px + var(--m-safe-b));
+    transform: none;
+    text-align: center;
+  }
+
+  /* ======================================================== 充值页 */
+
+  /* 签到卡原本是一横排（文案 · 七个格子 · 按钮）。390px 上文案被挤成一列单字，
+     「今天还没签到」竖着排下来。改成两行：文案和格子在上，按钮独占一行。 */
+  .checkin-card { flex-wrap: wrap; gap: 10px 12px }
+  .checkin-copy { flex: 1 1 100% }
+  .checkin-copy b { font-size: 16px }
+  .checkin-week { flex: 1 1 auto }
+  .checkin-week i { width: 15px; height: 15px }
+  .checkin-card .primary-button { flex: none; min-height: 44px; padding-inline: 18px }
+
+  .payment-methods { grid-template-columns: 1fr }
+
+  /* ============================== 充值 / 个人主页 / 活动 三页的共同毛病
+
+     顶栏那几个链接和按钮是照鼠标做的，26~35px 高，手指点上去经常差之毫厘。
+     这三页的顶栏结构不一样（.site-head 和 .activity-topbar），一起收拾。 */
+
+  .site-head .brand,
+  .site-head .back-to-create,
+  .site-head nav a,
+  .activity-topbar .activity-brand,
+  .activity-topbar nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+
+  /* 充值页那颗主题键是按 id 写死 32px 的，选择器得带上 id 才压得住 */
+  .site-head nav button,
+  .site-head nav button#themeButton,
+  .activity-topbar nav button { width: 40px; height: 40px }
+
+  .primary-button,
+  .ghost-button,
+  .copy-template,
+  .video-url-row button,
+  .package-card button,
+  .point-card button,
+  .account-footer button { min-height: 44px }
+
+  .link-button, .text-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 36px;
+  }
+
+  /* 投稿那一行：输入框和按钮并排，390px 上输入框只剩一小截 */
+  .video-url-row { flex-wrap: wrap }
+  .video-url-row input { flex: 1 1 100%; min-width: 0 }
+  .video-url-row button { flex: 1 1 auto }
+
+  .invite-summary { flex-wrap: wrap }
+  .invite-summary button { min-height: 40px }
+}
+
+/* 小屏再收一档：iPhone SE、老安卓机 */
+@media (max-width: 380px) {
+  /* 别把「909.46 积分」截成「909.46 …」——那个数字是用户最在意的东西 */
+  .topbar > .balance { max-width: 96px; padding-inline: 6px; font-size: 11px }
+  .m-title #pageTitle { font-size: 14px }
+  .composer .composer-model-switch .model-switch-trigger > small { max-width: 52px }
+  .hero-brand h1 { font-size: 24px }
+}

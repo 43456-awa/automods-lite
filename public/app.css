@@ -1,0 +1,312 @@
+/* 本地版补的几块样式。
+ *
+ * 页面结构、配色、组件形状全部来自 /vendor 下 automods.cn 线上那几份
+ * （tokens / simple / hx / skins / mobile），这里只写线上没有的：
+ * 启动页的"本机就绪"卡、本机设置表单、历史项目条目、设置弹窗。
+ * 颜色一律走 tokens.css 的语义变量，不自己造色。 */
+
+/* ---------------- 启动页：本机就绪卡 ---------------- */
+
+.wechat-login {
+  display: block;
+}
+
+.local-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.local-ready-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.local-ready-row > .mc-ico {
+  flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.local-ready-row > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.local-ready-row b {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.local-ready-row small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.local-dot.ok {
+  background: var(--success);
+}
+
+.local-dot.warn {
+  background: var(--warn);
+}
+
+.local-dot.bad {
+  background: var(--danger);
+}
+
+.login-enter {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.login-settings {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.login-settings:hover {
+  background: var(--surface-hover);
+}
+
+/* ---------------- 历史项目 ---------------- */
+
+.project-item {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 9px 30px 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.project-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.project-item b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.project-del {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.project-item:hover .project-del {
+  opacity: 1;
+}
+
+.project-del:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* 资产栏里没画到的补一条：文件行按钮的间距 */
+.tree-file .asset-get,
+.tree-file .vault-save {
+  flex: none;
+}
+
+/* ---------------- 本机设置 ---------------- */
+
+.settings-dialog section {
+  width: min(600px, 92vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-body {
+  overflow: auto;
+  padding: 4px 18px 14px;
+}
+
+.set-field {
+  display: block;
+  margin: 10px 0;
+}
+
+.set-field > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.set-field input,
+.set-field select,
+.set-field textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.set-field input:focus,
+.set-field select:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.set-field small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.set-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+.set-head {
+  margin: 14px 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.set-models {
+  max-height: 190px;
+  overflow: auto;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.set-model {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.set-model:last-child {
+  border-bottom: 0;
+}
+
+.set-model:hover {
+  background: var(--surface-hover);
+}
+
+.set-model.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---------------- 引导里的角色卡图标 ---------------- */
+
+.hx-role-card .role-ico {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 6px;
+}
+
+/* ---------------- 侧栏教程入口配色 ---------------- */
+
+.learn-create {
+  --dot: var(--info);
+}
+
+/* ---------------- 公告弹窗里的更新说明 ---------------- */
+
+.announcement-content ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.announcement-content li {
+  margin: 3px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.announcement-content code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
