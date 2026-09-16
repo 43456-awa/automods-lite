@@ -162,9 +162,15 @@
                 <h2>工程文件</h2>
               </div>
               <span id="fileCount">0</span>
+              <button type="button" class="btn btn-ghost btn-sm" id="btnZipProject" title="打包整个工程">下载整包</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btnBuildJar" title="Gradle build 并发布 rN jar">编译 Jar</button>
               <button type="button" class="btn btn-icon-only" id="btnRefresh" title="刷新">↻</button>
               <button type="button" class="btn btn-icon-only assets-close" id="btnCloseAssets" aria-label="关闭">×</button>
             </header>
+            <div class="releases" id="releasesBox" hidden>
+              <div class="releases-head">成品 Jar（rN）</div>
+              <div id="releasesList"></div>
+            </div>
             <div class="file-list" id="fileList">
               <div class="empty">发送第一条消息后会创建独立工程目录。</div>
             </div>

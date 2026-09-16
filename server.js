@@ -177,6 +177,109 @@ async function listProjectFiles(project) {
   return files;
 }
 
+/** 把工程内某目录（或整个工程）打成 zip，返回临时文件路径 */
+async function zipProjectPath(project, relPath = '') {
+  const root = ensureProject(project);
+  if (!root) throw new Error('bad project');
+  const src = relPath ? safeJoin(root, relPath) : root;
+  if (!src) throw new Error('bad path');
+  let st;
+  try { st = await fsp.stat(src); } catch { throw new Error('路径不存在'); }
+  const os = await import('node:os');
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'automods-zip-'));
+  const base = relPath ? path.basename(src) : `${project}`;
+  const zipPath = path.join(tmpDir, `${base || 'project'}.zip`);
+  // Compress-Archive 对目录会把目录本身打进去；空 rel 时对整个工程目录打包
+  const psPath = (p) => String(p).replace(/'/g, "''");
+  const script = st.isDirectory()
+    ? `Compress-Archive -LiteralPath '${psPath(src)}' -DestinationPath '${psPath(zipPath)}' -Force`
+    : `Compress-Archive -LiteralPath '${psPath(src)}' -DestinationPath '${psPath(zipPath)}' -Force`;
+  await runPs(script);
+  return { zipPath, tmpDir, filename: path.basename(zipPath) };
+}
+
+function runPs(script) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      windowsHide: true,
+    });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (c) => { out += c; });
+    child.stderr.on('data', (c) => { err += c; });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(err || out || `powershell exit ${code}`));
+    });
+  });
+}
+
+function releasesDir(project) {
+  const root = ensureProject(project);
+  if (!root) return null;
+  const d = path.join(root, 'releases');
+  fs.mkdirSync(d, { recursive: true });
+  return d;
+}
+
+function readRevision(project) {
+  const d = releasesDir(project);
+  if (!d) return 0;
+  try {
+    return Number(fs.readFileSync(path.join(d, 'revision.txt'), 'utf8').trim()) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeRevision(project, n) {
+  const d = releasesDir(project);
+  if (!d) return;
+  fs.writeFileSync(path.join(d, 'revision.txt'), String(n), 'utf8');
+}
+
+/** build 成功后把 jar 拷到 releases/ 并打上 rN */
+async function publishRelease(project, note = '') {
+  const root = ensureProject(project);
+  if (!root) return { ok: false, out: '工程目录非法' };
+  const libs = path.join(root, 'build', 'libs');
+  let jars = [];
+  try {
+    jars = (await fsp.readdir(libs)).filter((f) => f.endsWith('.jar') && !f.endsWith('-sources.jar') && !f.endsWith('-javadoc.jar'));
+  } catch {
+    return { ok: false, out: 'build/libs 下没有 jar，先执行 Gradle build' };
+  }
+  if (!jars.length) return { ok: false, out: 'build/libs 下没有 jar' };
+  // 取最新的一个
+  const jarName = jars.sort()[jars.length - 1];
+  const rev = readRevision(project) + 1;
+  const cfg = loadConfig();
+  const modId = String(cfg.modId || 'mod').replace(/[^a-zA-Z0-9_-]/g, '') || 'mod';
+  const outName = `${modId}-1.0.0-r${rev}.jar`;
+  const rd = releasesDir(project);
+  await fsp.copyFile(path.join(libs, jarName), path.join(rd, outName));
+  writeRevision(project, rev);
+  const metaPath = path.join(rd, 'index.json');
+  let meta = [];
+  try { meta = JSON.parse(await fsp.readFile(metaPath, 'utf8')); } catch { meta = []; }
+  const st = await fsp.stat(path.join(rd, outName));
+  meta.push({ name: outName, rev, size: st.size, mtime: st.mtimeMs, note: note || '', from: jarName });
+  await fsp.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+  return { ok: true, out: `已发布 ${outName}（${st.size} 字节）`, name: outName, rev, size: st.size };
+}
+
+async function listReleases(project) {
+  const rd = releasesDir(project);
+  if (!rd) return [];
+  try {
+    const meta = JSON.parse(await fsp.readFile(path.join(rd, 'index.json'), 'utf8'));
+    return meta;
+  } catch {
+    return [];
+  }
+}
+
 /* ---------------- MIME ---------------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -474,6 +577,20 @@ async function execTool(name, args, project, emit) {
     }
     if (name === 'run_gradle') {
       const result = await runGradle(root, args.task || 'build', emit);
+      // build 成功 → 发布 rN jar，方便网页直接下载
+      if (result.ok && /^(build|assemble|jar)$/i.test(String(args.task || 'build'))) {
+        try {
+          const pub = await publishRelease(project, `run_gradle ${args.task || 'build'}`);
+          if (pub.ok) {
+            result.out += `\n${pub.out}`;
+            result.release = pub;
+            emit({ k: 'tool_note', type: 'release', path: `releases/${pub.name}`, bytes: pub.size, rev: pub.rev });
+            emit({ k: 'release', name: pub.name, rev: pub.rev, size: pub.size });
+          }
+        } catch (e) {
+          result.out += `\n发布 jar 失败：${e.message || e}`;
+        }
+      }
       return result;
     }
     return { ok: false, out: `未知工具 ${name}` };
@@ -839,18 +956,26 @@ async function fetchChatWithRetry(url, init, cfg, emit) {
 
   while (attempt <= max) {
     if (init.signal?.aborted) throw new Error('已手动停止');
+    // 连接超时只约束「拿到响应头」；拿到后立刻解除，避免把整段流式思考也一起 abort
+    const connectCtrl = new AbortController();
+    const connectTimer = setTimeout(() => {
+      connectCtrl.abort(new Error(`connect timeout ${connectTimeoutSec}s`));
+    }, connectTimeoutSec * 1000);
     const attemptSignal = init.signal
-      ? AbortSignal.any([init.signal, AbortSignal.timeout(connectTimeoutSec * 1000)])
-      : AbortSignal.timeout(connectTimeoutSec * 1000);
+      ? AbortSignal.any([init.signal, connectCtrl.signal])
+      : connectCtrl.signal;
 
     let res;
     try {
       res = await fetch(url, { ...init, signal: attemptSignal });
+      // 响应头已到：取消连接计时，后续 body 只受用户停止 / idle 超时约束
+      clearTimeout(connectTimer);
     } catch (e) {
+      clearTimeout(connectTimer);
       lastErr = e;
       // 用户手动停止
       if (init.signal?.aborted) throw new Error('已手动停止');
-      const isTimeout = isTimeoutErr(e);
+      const isTimeout = isTimeoutErr(e) || /connect timeout/i.test(String(e?.message || e));
       if (attempt >= max) {
         throw new Error(isTimeout
           ? `连接上游超时（${connectTimeoutSec}s 无响应）。推理强度较高时首包会更慢，可到设置把「推理强度」降到 high/medium，或稍后重试。`
@@ -1702,7 +1827,42 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/files' && req.method === 'GET') {
       const project = url.searchParams.get('project') || 'default';
       const files = await listProjectFiles(project);
-      json(res, 200, { files, project, root: `workspace/projects/${project}` });
+      const releases = await listReleases(project);
+      json(res, 200, { files, project, root: `workspace/projects/${project}`, releases });
+      return;
+    }
+
+    if (p === '/api/releases' && req.method === 'GET') {
+      const project = url.searchParams.get('project') || 'default';
+      json(res, 200, { releases: await listReleases(project), rev: readRevision(project), project });
+      return;
+    }
+
+    if (p === '/api/build' && req.method === 'POST') {
+      const body = await readJson(req);
+      const project = body.project || 'default';
+      const root = ensureProject(project);
+      if (!root) return json(res, 400, { error: 'bad project' });
+      const result = await runGradle(root, body.task || 'build', () => {});
+      json(res, result.ok ? 200 : 500, result);
+      return;
+    }
+
+    if (p === '/api/zip' && req.method === 'GET') {
+      const project = url.searchParams.get('project') || 'default';
+      const rel = url.searchParams.get('path') || '';
+      try {
+        const { zipPath, filename } = await zipProjectPath(project, rel);
+        const data = await fsp.readFile(zipPath);
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+        });
+        res.end(data);
+        fsp.unlink(zipPath).catch(() => {});
+      } catch (e) {
+        json(res, 400, { error: String(e.message || e) });
+      }
       return;
     }
 

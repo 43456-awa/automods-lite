@@ -627,10 +627,11 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 .assets > header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   min-height: 56px;
+  flex-wrap: wrap;
 }
 .assets > header > div:first-child {
   flex: 1;
@@ -653,6 +654,40 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 }
 .assets-close { margin-left: 2px; }
 .file-list { flex: 1; overflow: auto; padding: 8px; }
+.releases {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+}
+.releases-head {
+  font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: none;
+}
+.release-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 4px 2px; color: var(--ink);
+}
+.release-item .meta { color: var(--muted); font-family: var(--mono); font-size: 10.5px; margin-left: auto; }
+.release-item a { color: var(--xp); text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-item a:hover { text-decoration: underline; }
+.tree-dir {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--ink);
+  padding: 4px 4px; cursor: pointer; font-size: 12.5px; border-radius: 2px;
+}
+.tree-dir:hover { background: rgba(255,255,255,.04); }
+.tree-dir .tw { width: 12px; color: var(--muted); flex-shrink: 0; font-size: 10px; }
+.tree-dir .dn { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-dir .dc { color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.tree-dir .zip {
+  border: 0; background: transparent; color: var(--blue); cursor: pointer;
+  font-size: 11px; padding: 0 4px; flex-shrink: 0;
+}
+.tree-dir .zip:hover { text-decoration: underline; }
+.tree-children { padding-left: 12px; }
+.tree-children[hidden] { display: none !important; }
 .file-list .empty {
   color: var(--muted); font-size: 13px; text-align: center; padding: 24px 12px;
 }

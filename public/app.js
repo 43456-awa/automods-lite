@@ -709,6 +709,116 @@ ${lines.join("\n")}
       ? `工程 ${state.project}` : "";
   }
 
+  function buildFileTree(files) {
+    const root = { name: "", path: "", dirs: new Map(), files: [] };
+    for (const f of files) {
+      const parts = String(f.path || "").split("/").filter(Boolean);
+      if (!parts.length) continue;
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i += 1) {
+        const seg = parts[i];
+        const p = node.path ? `${node.path}/${seg}` : seg;
+        if (!node.dirs.has(seg)) {
+          node.dirs.set(seg, { name: seg, path: p, dirs: new Map(), files: [] });
+        }
+        node = node.dirs.get(seg);
+      }
+      node.files.push(f);
+    }
+    return root;
+  }
+
+  function renderTreeNode(node, container, markFresh) {
+    const dirs = [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name));
+    const files = node.files.slice().sort((a, b) => a.path.localeCompare(b.path));
+    for (const d of dirs) {
+      const row = document.createElement("div");
+      row.className = "tree-node";
+      const head = document.createElement("button");
+      head.type = "button";
+      head.className = "tree-dir";
+      const tw = document.createElement("span");
+      tw.className = "tw";
+      tw.textContent = "▸";
+      const dn = document.createElement("span");
+      dn.className = "dn";
+      dn.textContent = d.name + "/";
+      const dc = document.createElement("span");
+      dc.className = "dc";
+      let count = d.files.length;
+      for (const sub of d.dirs.values()) count += 1;
+      dc.textContent = String(count);
+      const zip = document.createElement("button");
+      zip.type = "button";
+      zip.className = "zip";
+      zip.textContent = "zip";
+      zip.title = "下载这个文件夹";
+      zip.onclick = (e) => {
+        e.stopPropagation();
+        const project = state.project || "default";
+        window.open(`/api/zip?project=${encodeURIComponent(project)}&path=${encodeURIComponent(d.path)}`, "_blank");
+      };
+      head.appendChild(tw);
+      head.appendChild(dn);
+      head.appendChild(dc);
+      head.appendChild(zip);
+      const kids = document.createElement("div");
+      kids.className = "tree-children";
+      kids.hidden = true;
+      renderTreeNode(d, kids, markFresh);
+      head.onclick = () => {
+        const open = !kids.hidden;
+        kids.hidden = open;
+        tw.textContent = open ? "▸" : "▾";
+      };
+      row.appendChild(head);
+      row.appendChild(kids);
+      container.appendChild(row);
+    }
+    for (const f of files) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "file-item" + (markFresh && state.freshPaths.has(f.path) ? " fresh" : "");
+      const name = document.createElement("span");
+      name.textContent = f.path.split("/").pop();
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = fmtSize(f.size);
+      btn.appendChild(name);
+      btn.appendChild(meta);
+      btn.onclick = () => openFile(f.path);
+      container.appendChild(btn);
+    }
+  }
+
+  function renderReleases(releases) {
+    const box = $("releasesBox");
+    const list = $("releasesList");
+    if (!box || !list) return;
+    if (!releases || !releases.length) {
+      box.hidden = true;
+      list.textContent = "";
+      return;
+    }
+    box.hidden = false;
+    list.textContent = "";
+    const project = state.project || "default";
+    for (const r of releases.slice().reverse()) {
+      const row = document.createElement("div");
+      row.className = "release-item";
+      const a = document.createElement("a");
+      a.href = `/dl/${encodeURIComponent(project)}/releases/${encodeURIComponent(r.name)}`;
+      a.setAttribute("download", r.name);
+      a.textContent = r.name;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `r${r.rev} · ${fmtSize(r.size)}`;
+      row.appendChild(a);
+      row.appendChild(meta);
+      list.appendChild(row);
+    }
+  }
+
   async function loadFiles(markFresh) {
     if (state.mode !== "bench" && !state.chatId) return;
     const project = state.project || "default";
@@ -719,25 +829,14 @@ ${lines.join("\n")}
       els.fileCount.textContent = String(state.files.length);
       const rootEl = $("assetsRoot");
       if (rootEl) rootEl.textContent = data.root || `workspace/projects/${project}`;
+      renderReleases(data.releases || []);
       if (!state.files.length) {
         els.fileList.innerHTML = '<div class="empty">这个对话还没有文件。<br />让助手 write_file 后会出现在这里。</div>';
         return;
       }
       els.fileList.textContent = "";
-      for (const f of state.files) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "file-item" + (markFresh && state.freshPaths.has(f.path) ? " fresh" : "");
-        const name = document.createElement("span");
-        name.textContent = f.path;
-        const meta = document.createElement("span");
-        meta.className = "meta";
-        meta.textContent = fmtSize(f.size);
-        btn.appendChild(name);
-        btn.appendChild(meta);
-        btn.onclick = () => openFile(f.path);
-        els.fileList.appendChild(btn);
-      }
+      const tree = buildFileTree(state.files);
+      renderTreeNode(tree, els.fileList, markFresh);
       state.freshPaths.clear();
     } catch {
       toast("读取文件列表失败");
@@ -757,6 +856,37 @@ ${lines.join("\n")}
       els.btnDownload.setAttribute("download", rel.split("/").pop());
     } catch {
       toast("打不开这个文件");
+    }
+  }
+
+  async function buildJarNow() {
+    const project = state.project || "default";
+    const btn = $("btnBuildJar");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "编译中…";
+    }
+    toast("开始 Gradle build…");
+    try {
+      const res = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project, task: "build" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        toast(data.out?.split("\n").find((l) => l.includes("已发布")) || "编译成功");
+      } else {
+        toast(String(data.out || data.error || "编译失败").slice(0, 120));
+      }
+    } catch {
+      toast("编译请求失败");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "编译 Jar";
+      }
+      loadFiles(false);
     }
   }
 
@@ -1477,6 +1607,15 @@ ${lines.join("\n")}
     $("btnCloseSettings").onclick = closeSettings;
     $("btnCancelSettings").onclick = closeSettings;
     $("btnRefresh").onclick = () => loadFiles(false);
+    const btnZip = $("btnZipProject");
+    if (btnZip) {
+      btnZip.onclick = () => {
+        const project = state.project || "default";
+        window.open(`/api/zip?project=${encodeURIComponent(project)}`, "_blank");
+      };
+    }
+    const btnBuild = $("btnBuildJar");
+    if (btnBuild) btnBuild.onclick = () => buildJarNow();
     $("btnClosePreview").onclick = () => { els.filePreview.hidden = true; };
 
     const stopBtn = $("btnStop");

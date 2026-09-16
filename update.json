@@ -1,5 +1,5 @@
 {
-  "version": "0.3.15",
-  "notes": "Fix workbench composer clipped off-screen; scrollable chat; Chinese-only thinking; auto-scroll think box; longer connect timeout for max reasoning; thin old tool results in history; auto-save API key after fetch models",
+  "version": "0.3.16",
+  "notes": "Connect timeout no longer aborts long reasoning streams; nested file tree; zip folder/project download; Gradle build publishes rN jars",
   "minNode": 18
 }
