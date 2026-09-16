@@ -1,5 +1,6 @@
 # secrets & local data
 config.json
+config.json.bak*
 chats/
 workspace/
 chapters/

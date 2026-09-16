@@ -1,5 +1,5 @@
 {
-  "version": "0.3.14",
-  "notes": "Fix silent write_file fail on truncated tool args; per-attempt retry timeout; keep think on error; maxTokens 16k",
+  "version": "0.3.15",
+  "notes": "Fix workbench composer clipped off-screen; scrollable chat; Chinese-only thinking; auto-scroll think box; longer connect timeout for max reasoning; thin old tool results in history; auto-save API key after fetch models",
   "minNode": 18
 }

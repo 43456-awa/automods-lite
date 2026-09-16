@@ -405,6 +405,12 @@ ${lines.join("\n")}
   }
   window.NFSetMode = setMode;
 
+  /** 思考框内容更新后滚到底部，方便盯最新推理 */
+  function syncThinkScroll() {
+    if (!els.thinkBody || els.thinkBody.hidden) return;
+    els.thinkBody.scrollTop = els.thinkBody.scrollHeight;
+  }
+
   function showThink(label, keepAcc) {
     if (!els.thinkBox) return;
     els.thinkBox.hidden = false;
@@ -417,6 +423,7 @@ ${lines.join("\n")}
       if (thinkAcc) {
         els.thinkBody.hidden = false;
         els.thinkBody.textContent = thinkAcc.slice(-2000);
+        syncThinkScroll();
       } else {
         els.thinkBody.hidden = true;
       }
@@ -431,6 +438,7 @@ ${lines.join("\n")}
     if (els.thinkBody) {
       els.thinkBody.hidden = false;
       els.thinkBody.textContent = thinkAcc.slice(-2000);
+      syncThinkScroll();
     }
   }
 
@@ -924,6 +932,7 @@ ${lines.join("\n")}
         if (els.thinkBody && thinkAcc) {
           els.thinkBody.hidden = false;
           els.thinkBody.textContent = thinkAcc.slice(-2000);
+          syncThinkScroll();
         }
         break;
       case "run_end":
@@ -941,7 +950,26 @@ ${lines.join("\n")}
     }
   }
 
-  function sendMessage(text) {
+  function friendlyNetErr(e) {
+    const raw = String(e?.message || e || "");
+    if (/network error|failed to fetch|load failed|err_connection|ERR_/i.test(raw)) {
+      return "网络连不上上游。请检查：代理/VPN 是否开着、Base URL 是否正确、稍后重试。";
+    }
+    return raw || "未知错误";
+  }
+
+  async function ensureApiKey() {
+    try {
+      const res = await fetch("/api/config");
+      const cfg = await res.json();
+      if (cfg.apiKeySet) return true;
+    } catch { /* 网络失败时放行，让后端报具体错 */ }
+    toast("尚未保存 API Key，请在设置里填写并保存");
+    openSettings();
+    return false;
+  }
+
+  async function sendMessage(text) {
     if (!text) return;
     if (state.busy) {
       pendingQueue.push(text);
@@ -949,6 +977,7 @@ ${lines.join("\n")}
       toast("已排队，这一轮做完自动接上");
       return;
     }
+    if (!(await ensureApiKey())) return;
     setBusy(true, "连接中…");
     resetWorkCard();
     // 空窗期立刻给反馈
@@ -997,7 +1026,7 @@ ${lines.join("\n")}
         return;
       }
       if (state.liveBubble) cancelLive();
-      addMsg("system", e.message || String(e));
+      addMsg("system", friendlyNetErr(e));
       els.conversation.lastChild?.classList.add("err");
       // 失败保留思考过程
       if (els.thinkBox) els.thinkBox.hidden = false;
@@ -1005,6 +1034,7 @@ ${lines.join("\n")}
       if (els.thinkBody && thinkAcc) {
         els.thinkBody.hidden = false;
         els.thinkBody.textContent = thinkAcc.slice(-2000);
+        syncThinkScroll();
       }
       setBusy(false);
     });
@@ -1058,7 +1088,7 @@ ${lines.join("\n")}
       if (f.gradleTimeoutSec) f.gradleTimeoutSec.value = cfg.gradleTimeoutSec || 180;
       if (f.temperature) f.temperature.value = cfg.temperature ?? 0.4;
       if (f.topP) f.topP.value = cfg.topP ?? 1;
-      if (f.maxTokens) f.maxTokens.value = cfg.maxTokens ?? 8192;
+      if (f.maxTokens) f.maxTokens.value = cfg.maxTokens ?? 32768;
       if (f.reasoningEffort) f.reasoningEffort.value = cfg.reasoningEffort || "off";
       if (f.reasoningStyle) f.reasoningStyle.value = cfg.reasoningStyle || "auto";
       if (f.historyLimit) f.historyLimit.value = cfg.historyLimit ?? 36;
@@ -1347,12 +1377,46 @@ ${lines.join("\n")}
               dl.appendChild(opt);
             }
           });
-          // 让浏览器刷新 datalist
+          // datalist 会按输入框当前文字过滤，输入框里若还是 deepseek-chat
+          // 下拉就只剩匹配项。改成完整可点列表，避免“加载了 8 个却只看见 1 个”。
+          const listBox = document.getElementById("modelList");
+          const allIds = models.slice();
+          keep.forEach((id) => { if (!allIds.includes(id)) allIds.push(id); });
+          if (listBox) {
+            listBox.hidden = false;
+            listBox.textContent = "";
+            const active = f.model.value.trim();
+            allIds.forEach((id) => {
+              const b = document.createElement("button");
+              b.type = "button";
+              b.textContent = id;
+              b.title = "点击填入模型名";
+              if (id === active) b.classList.add("is-active");
+              b.onclick = () => {
+                f.model.value = id;
+                listBox.querySelectorAll("button").forEach((x) => x.classList.remove("is-active"));
+                b.classList.add("is-active");
+              };
+              listBox.appendChild(b);
+            });
+          }
+          // 刷新 datalist：先清空再恢复，避免旧过滤状态卡住
           const cur = f.model.value;
           f.model.value = "";
           f.model.value = cur;
-          f.model.focus();
-          toast(`已加载 ${models.length} 个模型 · 点右侧倒三角选择`);
+          toast(`已加载 ${models.length} 个模型 · 点下方模型名选择`);
+          // 「获取列表」本身不落盘。若表单里填了 key，顺手保存，
+          // 否则用户以为配好了，工作台对话仍会报「未配置 apiKey」。
+          if (apiKey) {
+            try {
+              await fetch("/api/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ apiKey }),
+              });
+              els.keyHint.textContent = `已保存：${apiKey.slice(0, 6)}…${apiKey.slice(-4)}（留空则不改）`;
+            } catch { /* 保存失败不打断列表 */ }
+          }
         } catch (e) {
           toast(e.message || "获取列表失败");
         } finally {

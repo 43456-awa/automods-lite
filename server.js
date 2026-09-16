@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
   updateRepo: '43456-awa/automods-lite',
   temperature: 0.4,
   topP: 1,
-  maxTokens: 16384,
+  maxTokens: 32768,
   reasoningEffort: 'off',
   reasoningStyle: 'auto',
   historyLimit: 36,
@@ -67,18 +67,31 @@ const LOCAL_VERSION = (() => {
 })();
 
 function loadConfig() {
-  try {
-    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+  const readOnce = () => {
+    // Windows/PowerShell 有时会写出 UTF-8 BOM，JSON.parse 会直接失败
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^﻿/, '');
     return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+  };
+  try {
+    return readOnce();
   } catch {
-    return { ...DEFAULT_CONFIG };
+    // 并发写入可能读到半截文件，稍候重试一次
+    try {
+      const wait = Date.now() + 80;
+      while (Date.now() < wait) { /* spin briefly */ }
+      return readOnce();
+    } catch {
+      return { ...DEFAULT_CONFIG };
+    }
   }
 }
 
 function saveConfig(cfg) {
   const next = { ...loadConfig(), ...cfg };
   delete next.port;
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
+  const tmp = `${CONFIG_PATH}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf8');
+  fs.renameSync(tmp, CONFIG_PATH);
   return next;
 }
 
@@ -226,6 +239,90 @@ function trimForStore(text, max = 4000) {
   return `${s.slice(0, max)}\n…（已截断，共 ${s.length} 字）`;
 }
 
+/** 旧工具回执瘦身：不把陈年 write/read 全文反复塞进上下文 */
+const TOOL_THIN_KEEP_CHARS = 400;
+const TOOL_THIN_KEEP_RECENT = 4; // 最近 N 条 tool 回执保留全文
+
+function parseToolArgs(args) {
+  if (!args) return {};
+  if (typeof args === 'object') return args;
+  try {
+    return JSON.parse(String(args)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function thinToolContent(raw, toolName, toolPath) {
+  const s = String(raw ?? '');
+  if (s.length <= TOOL_THIN_KEEP_CHARS) return s;
+  const lines = s.split('\n').length;
+  const pathPart = toolPath ? ` ${toolPath}` : '';
+  if (toolName === 'write_file') {
+    return `（历史回执已压缩）已写入${pathPart || '文件'}，约 ${lines} 行 / ${s.length} 字。需要当前内容时请调用 read_file，不要臆造。`;
+  }
+  if (toolName === 'read_file') {
+    return `（历史回执已压缩）曾读取${pathPart || '文件'}，约 ${lines} 行 / ${s.length} 字。需要再次查看请调用 read_file。`;
+  }
+  if (toolName === 'run_gradle') {
+    const head = s.slice(0, 240).replace(/\s+/g, ' ').trim();
+    return `（历史回执已压缩）run_gradle 摘要：${head}… [共 ${s.length} 字]`;
+  }
+  return `（历史回执已压缩）${toolName || 'tool'} 结果约 ${s.length} 字，需要时请重调工具。`;
+}
+
+function toApiMessages(chat, cfg) {
+  const src = chat.messages || [];
+  const lastUser = [...src].reverse().find((m) => m.role === 'user')?.content || '';
+  const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default', lastUser) }];
+  const BUDGET = Math.max(8, Number(cfg.historyLimit) || 36);
+  let start = Math.max(0, src.length - BUDGET);
+  while (start > 0 && src[start]?.role === 'tool') start -= 1;
+
+  // tool_call_id → 工具名/路径，便于瘦身时写清楚压的是哪个文件
+  const callMeta = new Map();
+  for (const m of src) {
+    if (m.role !== 'assistant' || !m.tool_calls?.length) continue;
+    for (const tc of m.tool_calls) {
+      const args = parseToolArgs(tc.args || tc.arguments);
+      callMeta.set(tc.id, { name: tc.name || '', path: args.path || '' });
+    }
+  }
+
+  // 从后往前数，最近几条 tool 保留全文
+  const toolIdx = [];
+  for (let i = src.length - 1; i >= 0; i -= 1) {
+    if (src[i]?.role === 'tool') toolIdx.push(i);
+  }
+  const keepFull = new Set(toolIdx.slice(0, TOOL_THIN_KEEP_RECENT));
+
+  for (let i = start; i < src.length; i += 1) {
+    const m = src[i];
+    if (!m) continue;
+    if (m.role === 'assistant') {
+      const item = { role: 'assistant', content: m.content || null };
+      if (m.tool_calls?.length) {
+        item.tool_calls = m.tool_calls.map((tc) => ({
+          id: tc.id,
+          type: 'function',
+          function: { name: tc.name, arguments: tc.args || tc.arguments || '{}' },
+        }));
+      }
+      if (item.content || item.tool_calls) out.push(item);
+    } else if (m.role === 'tool') {
+      let content = m.content || '';
+      if (!keepFull.has(i)) {
+        const meta = callMeta.get(m.tool_call_id) || {};
+        content = thinToolContent(content, m.name || meta.name, meta.path);
+      }
+      out.push({ role: 'tool', tool_call_id: m.tool_call_id, content });
+    } else if (m.role === 'user') {
+      out.push({ role: 'user', content: m.content });
+    }
+  }
+  return out;
+}
+
 function toPascal(id) {
   return String(id).split(/[_-]/).filter(Boolean)
     .map((s) => s[0].toUpperCase() + s.slice(1))
@@ -262,6 +359,8 @@ ${memBlock}
 8. 用户要求编译/构建时，调用 run_gradle（默认 build）。
 9. 贴图 png 无法用工具生成，路径写好并告诉用户自己放文件。
 10. 若 write_file 返回「参数 JSON 不完整」，立刻重试一次完整 JSON，不要改聊别的。
+11. **思考/reasoning 必须全程用简体中文**，禁止用英文推理；正文回复也用简体中文。
+12. 历史里标了「历史回执已压缩」的工具结果只是摘要，不是文件现状；改旧文件前先 read_file。
 
 标准目录：
 src/main/java/com/example/${cfg.modId}/
@@ -271,36 +370,6 @@ ${tomlPath}
 src/main/resources/assets/${cfg.modId}/lang/zh_cn.json
 src/main/resources/assets/${cfg.modId}/models/item/xxx.json
 `;
-}
-
-function toApiMessages(chat, cfg) {
-  const src = chat.messages || [];
-  const lastUser = [...src].reverse().find((m) => m.role === 'user')?.content || '';
-  const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default', lastUser) }];
-  const BUDGET = Math.max(8, Number(cfg.historyLimit) || 36);
-  let start = Math.max(0, src.length - BUDGET);
-  while (start > 0 && src[start]?.role === 'tool') start -= 1;
-
-  for (let i = start; i < src.length; i += 1) {
-    const m = src[i];
-    if (!m) continue;
-    if (m.role === 'assistant') {
-      const item = { role: 'assistant', content: m.content || null };
-      if (m.tool_calls?.length) {
-        item.tool_calls = m.tool_calls.map((tc) => ({
-          id: tc.id,
-          type: 'function',
-          function: { name: tc.name, arguments: tc.args || tc.arguments || '{}' },
-        }));
-      }
-      if (item.content || item.tool_calls) out.push(item);
-    } else if (m.role === 'tool') {
-      out.push({ role: 'tool', tool_call_id: m.tool_call_id, content: m.content || '' });
-    } else if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
-    }
-  }
-  return out;
 }
 
 const liveRuns = new Map();
@@ -749,29 +818,51 @@ function normalizePlan(plan) {
   };
 }
 
-/** 429/5xx 自动重试；每次尝试单独超时，避免第一次拖死后续重试 */
+/** 429/5xx 自动重试；超时只约束「连上/无数据」，不约束整段思考时长 */
 async function fetchChatWithRetry(url, init, cfg, emit) {
   const max = Math.max(0, Number(cfg.apiRetries) || 4);
-  const timeoutSec = Math.max(30, Number(cfg.apiTimeoutSec) || 180);
+  // 推理强度越高，上游越可能很久才回响应头/首包
+  const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
+  const connectTimeoutSec = effort === 'max' || effort === 'xhigh' ? 180
+    : effort === 'high' ? 120
+    : 60;
   let attempt = 0;
   let lastErr = null;
 
+  const isTimeoutErr = (e) => {
+    const name = String(e?.name || '');
+    const msg = String(e?.message || e || '');
+    return name === 'TimeoutError'
+      || name === 'AbortError'
+      || /timeout|aborted due to timeout|ETIMEDOUT|UND_ERR/i.test(msg);
+  };
+
   while (attempt <= max) {
     if (init.signal?.aborted) throw new Error('已手动停止');
-    // 每次重试新建 timeout，不能复用第一次的 AbortSignal
     const attemptSignal = init.signal
-      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutSec * 1000)])
-      : AbortSignal.timeout(timeoutSec * 1000);
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(connectTimeoutSec * 1000)])
+      : AbortSignal.timeout(connectTimeoutSec * 1000);
 
     let res;
     try {
       res = await fetch(url, { ...init, signal: attemptSignal });
     } catch (e) {
       lastErr = e;
-      if (init.signal?.aborted || e?.name === 'AbortError') throw e;
-      if (attempt >= max) throw e;
+      // 用户手动停止
+      if (init.signal?.aborted) throw new Error('已手动停止');
+      const isTimeout = isTimeoutErr(e);
+      if (attempt >= max) {
+        throw new Error(isTimeout
+          ? `连接上游超时（${connectTimeoutSec}s 无响应）。推理强度较高时首包会更慢，可到设置把「推理强度」降到 high/medium，或稍后重试。`
+          : String(e?.message || e));
+      }
       const wait = Math.min(15000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
-      emit?.({ k: 'status', text: `网络/超时，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）` });
+      emit?.({
+        k: 'status',
+        text: isTimeout
+          ? `连接上游超时（${connectTimeoutSec}s），${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）`
+          : `网络异常，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）`,
+      });
       await sleep(wait);
       attempt += 1;
       continue;
@@ -795,6 +886,50 @@ async function fetchChatWithRetry(url, init, cfg, emit) {
     attempt += 1;
   }
   throw lastErr || new Error('上游请求失败');
+}
+
+/** 读流：每收到一块就重置 idle 计时；连续无数据才超时 */
+async function readStreamWithIdleTimeout(reader, onChunk, idleSec, outerSignal, emit) {
+  const idleMs = Math.max(30, idleSec) * 1000;
+  let idleTimer = null;
+  let timedOut = false;
+
+  const arm = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      try { reader.cancel('idle timeout'); } catch { /* ignore */ }
+    }, idleMs);
+  };
+
+  const disarm = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  };
+
+  arm();
+  try {
+    while (true) {
+      if (outerSignal?.aborted) throw new Error('已手动停止');
+      let result;
+      try {
+        result = await reader.read();
+      } catch (e) {
+        if (timedOut) {
+          throw new Error(`上游 ${Math.round(idleMs / 1000)}s 无新数据（思考或正文卡住）。可点停止后重试，或提高「上游超时」。`);
+        }
+        throw e;
+      }
+      if (result.done) break;
+      arm(); // 有数据 → 续命
+      onChunk(result.value);
+      if (emit && Math.random() < 0.02) {
+        emit({ k: 'status', text: '思考/输出中…（有数据，不会超时）' });
+      }
+    }
+  } finally {
+    disarm();
+  }
 }
 
 export async function callChatStream(cfg, messages, tools, signal, emit) {
@@ -829,44 +964,62 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
   let content = '';
   let finishReason = '';
   const toolMap = new Map();
+  // max/xhigh 推理时，上游可能长时间只出 reasoning 或整段缓冲，idle 放宽
+  const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
+  const idleFloor = (effort === 'max' || effort === 'xhigh') ? 240 : 45;
+  const idleSec = Math.max(idleFloor, Number(cfg.apiTimeoutSec) || 180);
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split('\n');
-    buf = parts.pop() || '';
-    for (const line of parts) {
-      const t = line.trim();
-      if (!t.startsWith('data:')) continue;
-      const payload = t.slice(5).trim();
-      if (payload === '[DONE]') continue;
-      let json;
-      try { json = JSON.parse(payload); } catch { continue; }
-      if (json.choices?.[0]?.finish_reason) finishReason = json.choices[0].finish_reason;
-      const delta = json.choices?.[0]?.delta;
-      if (!delta) continue;
-      const think = delta.reasoning_content || delta.reasoning;
-      if (think) {
-        emit({ k: 'think_delta', text: think });
-      }
-      if (delta.content) {
-        content += delta.content;
-        emit({ k: 'say_delta', text: delta.content });
-      }
-      if (delta.tool_calls) {
-        for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0;
-          if (!toolMap.has(idx)) {
-            toolMap.set(idx, { id: tc.id || `call_${idx}_${randomUUID()}`, name: '', args: '' });
-          }
-          const slot = toolMap.get(idx);
-          if (tc.id) slot.id = tc.id;
-          if (tc.function?.name) slot.name += tc.function.name;
-          if (tc.function?.arguments) slot.args += tc.function.arguments;
+  const handleLine = (line) => {
+    const t = line.trim();
+    if (!t.startsWith('data:')) return;
+    const payload = t.slice(5).trim();
+    if (payload === '[DONE]') return;
+    let json;
+    try { json = JSON.parse(payload); } catch { return; }
+    if (json.choices?.[0]?.finish_reason) finishReason = json.choices[0].finish_reason;
+    const delta = json.choices?.[0]?.delta;
+    if (!delta) return;
+    const think = delta.reasoning_content || delta.reasoning;
+    if (think) emit({ k: 'think_delta', text: think });
+    if (delta.content) {
+      content += delta.content;
+      emit({ k: 'say_delta', text: delta.content });
+    }
+    if (delta.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0;
+        if (!toolMap.has(idx)) {
+          toolMap.set(idx, { id: tc.id || `call_${idx}_${randomUUID()}`, name: '', args: '' });
         }
+        const slot = toolMap.get(idx);
+        if (tc.id) slot.id = tc.id;
+        if (tc.function?.name) slot.name += tc.function.name;
+        if (tc.function?.arguments) slot.args += tc.function.arguments;
       }
     }
+  };
+
+  try {
+    await readStreamWithIdleTimeout(reader, (value) => {
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n');
+      buf = parts.pop() || '';
+      for (const line of parts) handleLine(line);
+    }, idleSec, signal, emit);
+  } catch (e) {
+    const msg = String(e?.message || e);
+    // 半路断了：把已收到的 content/toolCalls 交回去，别整段丢掉
+    if (/idle timeout|network|terminated|aborted|socket|ECONNRESET|UND_ERR/i.test(msg)
+      && (content || toolMap.size)) {
+      emit({ k: 'status', text: '上游中途断开，使用已收到的部分继续…' });
+    } else {
+      throw e;
+    }
+  }
+
+  // 收尾：处理缓冲区残留
+  if (buf.trim()) {
+    for (const line of buf.split('\n')) handleLine(line);
   }
 
   const toolCalls = [...toolMap.entries()]
@@ -902,6 +1055,11 @@ async function autoSummarizeMemory(chat, cfg, emit) {
     }).join('\n');
 
     emit?.({ k: 'memory_status', text: '正在提炼制作记忆…' });
+
+    // 太短的轮次不提炼，避免每轮都多一次 LLM 往返
+    const userChars = turns.filter((m) => m.role === 'user')
+      .reduce((n, m) => n + String(m.content || '').length, 0);
+    if (userChars < 40 && turns.length < 4) return;
 
     const raw = await callChatCompletionsOnce(cfg, [
       {
@@ -963,6 +1121,9 @@ async function runAgent(chat, emit) {
       if (content) {
         emit({ k: 'say_settled', text: content });
         liveNode = false;
+      } else if (!toolCalls.length && round > 0) {
+        // 断流后什么都没拿到，别假装做完
+        emit({ k: 'error', text: '本轮没有拿到有效输出（可能中途断线），可直接再说一次「继续」' });
       }
 
       emit({

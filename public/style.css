@@ -148,13 +148,24 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 }
 .btn-ghost:hover { color: var(--ink); background: #343434; }
 .btn-block { width: 100%; }
-.btn-icon-only {
-  width: 34px; height: 34px; padding: 0;
+.btn-icon-only,
+.btn.btn-icon-only {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 !important;
   border: 2px solid #0e0e0e; border-radius: 2px;
   color: var(--muted); background: #2a2a2a; cursor: pointer;
   box-shadow: var(--bevel);
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  line-height: 1 !important;
+  font-size: 15px;
+  flex-shrink: 0;
+  gap: 0 !important;
 }
-.btn-icon-only:hover { color: var(--ink); background: #343434; }
 
 /* main */
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -191,6 +202,7 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 
 .split {
   flex: 1; min-height: 0; min-width: 0;
+  height: 100%; /* 关键：不撑满父级高度的话，conversation 会按内容变高，输入框被裁出视口 */
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   overflow: hidden;
 }
@@ -205,6 +217,15 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   padding: 36px 28px 20px;
   max-width: 720px;
   flex-shrink: 0;
+}
+/* 矮屏幕：压缩抬头，保证输入框不被顶出视口 */
+@media (max-height: 780px) {
+  .hero { padding: 14px 20px 8px; }
+  .hero h1 { font-size: 1.15rem; margin-bottom: 6px; }
+  .hero p { margin-bottom: 10px; font-size: 13px; }
+  .starters { display: none; }
+  .work-card .steps { max-height: 96px; }
+  .dock { padding-top: 6px; padding-bottom: 10px; }
 }
 .hero h1 { margin: 0 0 10px; font-size: 1.5rem; letter-spacing: -.02em; }
 .hero p { margin: 0 0 18px; color: var(--muted); }
@@ -222,16 +243,35 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 .starters button:hover { background: #7b7b7b; }
 
 .conversation {
-  flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 28px 16px;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 8px 28px 16px;
   display: flex; flex-direction: column; gap: 12px;
+  /* 不要用 justify-content:flex-end：内容溢出时顶部滚不回去，滚动条也容易不出现 */
+  scrollbar-gutter: stable;
 }
-/* 空对话也占位，把输入框钉在底部；不要 display:none */
+/* 消息少时贴底；用 ::before 吃掉上方剩余空间，溢出时仍可正常滚动 */
+.conversation::before {
+  content: "";
+  flex: 1 0 auto;
+  min-height: 0;
+  margin-bottom: auto;
+}
+/* 空对话也占位 */
 .conversation:empty::before {
   content: "";
   display: block;
   flex: 1;
   min-height: 24px;
 }
+/* 对话区滚动条加粗一点，深色底上系统细条几乎看不见 */
+.conversation::-webkit-scrollbar { width: 12px; }
+.conversation::-webkit-scrollbar-track { background: #0e0e0e; }
+.conversation::-webkit-scrollbar-thumb {
+  background: #5a5a5a;
+  border-radius: 3px;
+  border: 3px solid #0e0e0e;
+}
+.conversation::-webkit-scrollbar-thumb:hover { background: #7a7a7a; }
 
 .msg {
   max-width: 720px; padding: 10px 14px;
@@ -249,6 +289,15 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 .msg.system {
   align-self: center; background: transparent; color: var(--muted);
   font-size: 12.5px; border: 0; padding: 2px; box-shadow: none;
+  max-width: 90%;
+  text-align: center;
+}
+.msg.system.err {
+  color: var(--danger);
+  border: 1px solid rgba(239, 107, 115, 0.35);
+  background: rgba(239, 107, 115, 0.08);
+  border-radius: 2px;
+  padding: 8px 12px;
 }
 .msg.system.err { color: var(--danger); }
 
@@ -282,6 +331,10 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   border-top: 1px solid var(--line-soft, var(--line));
   background: var(--bg);
   margin-top: auto;
+  /* 输入区永远贴底可见：dock 整体不许把页面顶出屏幕 */
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .work-card {
   max-width: 720px; margin: 0 auto 10px;
@@ -289,6 +342,7 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   background: var(--panel);
   box-shadow: var(--bevel);
   overflow: hidden;
+  flex-shrink: 0;
 }
 .work-card header {
   display: flex; align-items: center; gap: 8px;
@@ -327,6 +381,7 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   background: var(--panel);
   box-shadow: var(--bevel);
   padding: 8px 10px 10px;
+  flex-shrink: 0;
 }
 .composer-toolbar {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
@@ -540,6 +595,8 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   background: #1a221a;
   box-shadow: var(--bevel);
   overflow: hidden;
+  flex-shrink: 0;
+  max-height: 160px;
 }
 .think-box header {
   display: flex; align-items: center; gap: 8px;
@@ -568,15 +625,33 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   display: flex; flex-direction: column; min-height: 0;
 }
 .assets > header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px; border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  min-height: 56px;
 }
-.assets h2 { margin: 0; font-size: 15px; }
-.assets header small { color: var(--muted); font-size: 11px; display: block; }
+.assets > header > div:first-child {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+.assets h2 { margin: 0; font-size: 15px; line-height: 1.2; }
+.assets header small {
+  color: var(--muted); font-size: 11px; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  line-height: 1.3;
+}
 #fileCount {
   font-family: var(--mono); font-size: 12px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px;
+  line-height: 1.2;
+  flex-shrink: 0;
+  align-self: center;
 }
+.assets-close { margin-left: 2px; }
 .file-list { flex: 1; overflow: auto; padding: 8px; }
 .file-list .empty {
   color: var(--muted); font-size: 13px; text-align: center; padding: 24px 12px;
@@ -647,7 +722,9 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 .modal header {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 10px; flex-shrink: 0;
+  gap: 10px;
 }
+.modal header .btn-icon-only { align-self: center; }
 .modal h2 { margin: 0; font-size: 16px; }
 .modal form {
   display: flex; flex-direction: column; min-height: 0; flex: 1;
@@ -683,6 +760,18 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   .modal .grid3 > label:last-child { grid-column: 1 / -1; }
 }
 .hint-line { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.model-list {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 8px; max-height: 140px; overflow-y: auto;
+}
+.model-list button {
+  border: 1px solid #3a3a3a; background: #1c1c1c; color: var(--muted);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+.model-list button:hover,
+.model-list button.is-active {
+  color: var(--ink); border-color: var(--accent); background: #242424;
+}
 .check-row {
   display: flex; align-items: flex-start; gap: 8px;
   font-size: 13px; color: var(--muted); margin: 4px 0 10px;
@@ -844,12 +933,14 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 /* learn layout */
 .view {
   flex: 1; min-height: 0; min-width: 0; overflow: hidden;
+  display: flex; flex-direction: column; /* 让 .split 的 flex:1 真正生效 */
 }
 .view[hidden] { display: none !important; }
 .learn-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   height: 100%;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
 }
@@ -959,8 +1050,10 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
 }
 .checker.is-open { transform: translateX(0); }
 .checker-head {
-  display: flex; justify-content: space-between; padding: 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px;
   border-bottom: 1px solid var(--line);
+  gap: 10px;
 }
 .checker-title { font-weight: 650; }
 .checker-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
