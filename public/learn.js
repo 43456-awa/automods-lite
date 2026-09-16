@@ -231,6 +231,35 @@
     addAskMsg("user", question);
     const live = addAskMsg("assistant", "", true);
     let acc = "";
+    let think = "";
+    let thinkEl = null;
+
+    const ensureThink = () => {
+      if (thinkEl) return thinkEl;
+      thinkEl = document.createElement("div");
+      thinkEl.className = "ask-think";
+      thinkEl.innerHTML = "<b>正在思考中…</b><pre></pre>";
+      els.askThread.insertBefore(thinkEl, live);
+      els.askThread.scrollTop = els.askThread.scrollHeight;
+      return thinkEl;
+    };
+    const pushThink = (t) => {
+      think += t || "";
+      const el = ensureThink();
+      const b = el.querySelector("b");
+      const pre = el.querySelector("pre");
+      if (b) b.textContent = "思考中…";
+      if (pre) pre.textContent = think.slice(-1500);
+      els.askThread.scrollTop = els.askThread.scrollHeight;
+    };
+    const closeThink = (label) => {
+      if (!thinkEl) return;
+      const b = thinkEl.querySelector("b");
+      if (b) b.textContent = label || "思考结束";
+      thinkEl.classList.add("done");
+    };
+
+    live.textContent = "正在连接上游…";
 
     try {
       const res = await fetch("/api/learn/ask", {
@@ -260,24 +289,37 @@
           if (!line) continue;
           let data;
           try { data = JSON.parse(line.slice(6)); } catch { continue; }
-          if (data.k === "delta" || data.k === "say_delta") {
+          if (data.k === "think_delta") {
+            pushThink(data.text || "");
+          } else if (data.k === "delta" || data.k === "say_delta") {
+            closeThink();
+            if (!acc) live.textContent = "";
             acc += data.text || "";
             live.textContent = acc;
             els.askThread.scrollTop = els.askThread.scrollHeight;
           } else if (data.k === "say_settled" || data.k === "done") {
+            closeThink();
             if (data.text) acc = data.text;
+          } else if (data.k === "status") {
+            if (!acc) live.textContent = data.text || "处理中…";
           } else if (data.k === "error") {
-            throw new Error(data.text || "提问失败");
+            closeThink("思考中断");
+            if (!acc) throw new Error(data.text || "提问失败");
+            live.textContent = acc + `\n\n（${data.text || "中断"}）`;
           }
         }
       }
+      closeThink();
       if (acc) {
         live.remove();
         addAskMsg("assistant", acc);
         learn.askHistory.push({ role: "user", content: question });
         learn.askHistory.push({ role: "assistant", content: acc });
+      } else if (thinkEl) {
+        live.textContent = "（本轮没有正文回复）";
       }
     } catch (e) {
+      closeThink("思考中断");
       live.textContent = `出错：${e.message || e}`;
     } finally {
       learn.askBusy = false;

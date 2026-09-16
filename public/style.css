@@ -251,6 +251,24 @@ code { font-family: var(--mono); font-size: 0.9em; color: var(--blue); }
   font-size: 12.5px; border: 0; padding: 2px; box-shadow: none;
 }
 .msg.system.err { color: var(--danger); }
+
+/* 学习页提问：思考块 */
+.ask-think {
+  border: 2px solid #0e0e0e; border-radius: 2px;
+  background: #1a221a; padding: 8px 10px;
+  max-width: 100%;
+}
+.ask-think b {
+  display: block; font-size: 12px; color: var(--xp);
+  margin-bottom: 4px;
+}
+.ask-think pre {
+  margin: 0; max-height: 120px; overflow: auto;
+  font-family: var(--mono); font-size: 11px; line-height: 1.4;
+  color: #b8d4b8; white-space: pre-wrap; word-break: break-word;
+}
+.ask-think.done { opacity: 0.75; }
+.ask-think.done b { color: var(--muted); }
 .msg .md-code {
   font-family: var(--mono); font-size: 12.5px; background: #0A1015;
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;

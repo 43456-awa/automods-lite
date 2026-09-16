@@ -1,5 +1,5 @@
 {
-  "version": "0.3.12",
-  "notes": "update.bat uses jsDelivr mirrors for CN networks",
+  "version": "0.3.13",
+  "notes": "Show thinking on learn ask; instant think on bench; keep think across rate-limit retry",
   "minNode": 18
 }

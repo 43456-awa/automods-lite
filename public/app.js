@@ -405,11 +405,22 @@ ${lines.join("\n")}
   }
   window.NFSetMode = setMode;
 
-  function showThink(label) {
+  function showThink(label, keepAcc) {
     if (!els.thinkBox) return;
     els.thinkBox.hidden = false;
     if (els.thinkText) els.thinkText.textContent = label || "正在思考…";
-    if (els.thinkBody && !thinkAcc) els.thinkBody.hidden = true;
+    // keepAcc=true 时不清理已有推理（限流重试等）
+    if (!keepAcc && thinkAcc) {
+      /* 保留 thinkAcc，只更新标题 */
+    }
+    if (els.thinkBody) {
+      if (thinkAcc) {
+        els.thinkBody.hidden = false;
+        els.thinkBody.textContent = thinkAcc.slice(-2000);
+      } else {
+        els.thinkBody.hidden = true;
+      }
+    }
   }
 
   function appendThink(text) {
@@ -423,13 +434,18 @@ ${lines.join("\n")}
     }
   }
 
-  function hideThink() {
-    thinkAcc = "";
+  /** collapse think box but KEEP text for retry; hard=true 清空 */
+  function hideThink(hard) {
+    if (hard !== false) thinkAcc = "";
     if (els.thinkBox) els.thinkBox.hidden = true;
     if (els.thinkBody) {
       els.thinkBody.hidden = true;
-      els.thinkBody.textContent = "";
+      if (hard !== false) els.thinkBody.textContent = "";
     }
+  }
+
+  function collapseThinkKeep() {
+    if (els.thinkBox) els.thinkBox.hidden = true;
   }
 
   function shortNum(n) {
@@ -640,7 +656,8 @@ ${lines.join("\n")}
     els.workCard.hidden = true;
     els.workCard.classList.remove("running");
     els.workTitle.textContent = "正在制作";
-    hideThink();
+    // 新一轮才清空思考
+    hideThink(true);
   }
 
   function addStep(label, brief, bad, id) {
@@ -844,11 +861,12 @@ ${lines.join("\n")}
         addMsg("user", data.text);
         break;
       case "status":
-        // 只更新文案；真正 busy 由 started/run_end 等控制，避免收尾后记忆总结把状态打回「停止」
+        // 只更新文案；真正 busy 由 started/run_end 等控制
         if (state.busy) {
           els.runFlag.textContent = data.text || "制作中";
           els.workNow.textContent = data.text || "";
-          showThink(data.text || "正在思考…");
+          // 限流重试时保留已有 thinkAcc
+          showThink(data.text || "正在思考…", true);
         }
         break;
       case "think_delta":
@@ -858,13 +876,14 @@ ${lines.join("\n")}
         els.workNow.textContent = "思考中…";
         break;
       case "say_delta":
-        hideThink();
+        // 正文开始后收起思考框，但不清空 thinkAcc（若又被限流可继续）
+        collapseThinkKeep();
         appendLive(data.text || "");
         updateCtxMeter(data.text);
         break;
       case "say_settled":
       case "say":
-        hideThink();
+        collapseThinkKeep();
         settleLive(data.text || "");
         updateCtxMeter();
         break;
@@ -900,7 +919,7 @@ ${lines.join("\n")}
         break;
       case "run_end":
         if (state.liveBubble) cancelLive();
-        hideThink();
+        hideThink(true);
         streamAbort = null;
         setBusy(false);
         loadFiles(true);
@@ -922,9 +941,11 @@ ${lines.join("\n")}
     }
     setBusy(true, "连接中…");
     resetWorkCard();
-    showThink("正在连接上游…");
+    // 空窗期立刻给反馈
+    showThink("正在思考中… 连接上游", true);
     els.workCard.hidden = false;
     els.workCard.classList.add("running");
+    els.workNow.textContent = "正在思考中…";
     els.filePreview.hidden = true;
 
     streamAbort = new AbortController();
