@@ -55,6 +55,17 @@ const DEFAULT_CONFIG = {
   apiRetries: 4,
   // 对话结束后自动总结制作者偏好到 memory.json
   autoMemory: true,
+
+  /* ---- 图片生成（贴图工坊）----
+   * 留空就沿用上面的 baseUrl / apiKey，省得同一个账号填两遍。
+   * 商汤 SenseNova U1.5 Lite / U1-fast 走 OpenAI 标准的 /images/generations。 */
+  imageBaseUrl: '',
+  imageApiKey: '',
+  imageModel: 'sensenova-u1.5-lite',
+  imageSize: '1024x1024',
+  imageNegative: '',
+  // 存进工程前缩到多少像素（0 = 不缩放，直接存原图）
+  imageScale: 64,
   port: PORT,
 };
 
@@ -281,6 +292,109 @@ async function listReleases(project) {
   }
 }
 
+/* ---------------- 图片生成（贴图工坊） ---------------- */
+
+/** 工程里 assets 下第一个目录就是 modid；没有就用 config 里的 */
+async function detectModId(root, fallback) {
+  const assets = path.join(root, 'src', 'main', 'resources', 'assets');
+  const dirs = await readdirSafe(assets);
+  return dirs[0] || fallback || 'mymod';
+}
+
+/** 调上游 /images/generations，返回 PNG Buffer */
+async function generateImage(cfg, opts) {
+  const base = String(cfg.imageBaseUrl || cfg.baseUrl || '').replace(/\/+$/, '');
+  const key = cfg.imageApiKey || cfg.apiKey;
+  if (!base) throw new Error('没填接口地址');
+  if (!key || key.startsWith('sk-在这里')) throw new Error('没填密钥');
+
+  const body = {
+    model: opts.model || cfg.imageModel || 'sensenova-u1.5-lite',
+    prompt: String(opts.prompt || '').trim(),
+    n: 1,
+    size: opts.size || cfg.imageSize || '1024x1024',
+  };
+  if (cfg.imageNegative) body.negative_prompt = cfg.imageNegative;
+
+  const res = await fetch(`${base}/images/generations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Math.max(30, Number(cfg.apiTimeoutSec) || 180) * 1000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = text;
+    try { msg = JSON.parse(text).error?.message || JSON.parse(text).error || text; } catch { /* 不是 JSON */ }
+    throw new Error(`生图失败（${res.status}）：${String(msg).slice(0, 200)}`);
+  }
+
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error('上游返回的不是 JSON'); }
+  const first = (data.data || [])[0];
+  if (!first) throw new Error('上游没返回图片');
+
+  if (first.b64_json) return Buffer.from(first.b64_json, 'base64');
+  if (first.url) {
+    const img = await fetch(first.url, { signal: AbortSignal.timeout(60000) });
+    if (!img.ok) throw new Error('下载生成的图片失败');
+    return Buffer.from(await img.arrayBuffer());
+  }
+  throw new Error('上游返回里既没有 b64_json 也没有 url');
+}
+
+/** 贴图像素化：MC 贴图越硬边越对味，所以缩放走 NearestNeighbor */
+async function scalePng(srcPath, destPath, px) {
+  const script = `
+Add-Type -AssemblyName System.Drawing
+$src = [System.Drawing.Image]::FromFile('${String(srcPath).replace(/'/g, "''")}')
+$bmp = New-Object System.Drawing.Bitmap ${px}, ${px}
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+$g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::None
+$g.DrawImage($src, 0, 0, ${px}, ${px})
+$g.Dispose()
+$bmp.Save('${String(destPath).replace(/'/g, "''")}', [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+$src.Dispose()`;
+  await runPs(script);
+}
+
+/** 存进工程：assets/<modid>/textures/<kind>/<name>.png */
+async function saveTexture(project, kind, name, buf, scale) {
+  const root = ensureProject(project);
+  if (!root) throw new Error('bad project');
+  const cfg = loadConfig();
+  const modid = await detectModId(root, cfg.modId);
+  const dir = path.join(root, 'src', 'main', 'resources', 'assets', modid, 'textures', kind);
+  await fsp.mkdir(dir, { recursive: true });
+  const safe = String(name).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48) || 'texture';
+  const finalPath = path.join(dir, `${safe}.png`);
+
+  const px = Number(scale) || 0;
+  if (px > 0) {
+    const tmp = path.join(dir, `.${safe}.raw.png`);
+    await fsp.writeFile(tmp, buf);
+    try {
+      await scalePng(tmp, finalPath, px);
+    } catch (e) {
+      // 缩放失败就存原图，别把图丢了
+      await fsp.writeFile(finalPath, buf);
+      await fsp.unlink(tmp).catch(() => {});
+      return { path: path.relative(root, finalPath).replace(/\\/g, '/'), scaled: false, note: String(e.message || e) };
+    }
+    await fsp.unlink(tmp).catch(() => {});
+  } else {
+    await fsp.writeFile(finalPath, buf);
+  }
+  return {
+    path: path.relative(root, finalPath).replace(/\\/g, '/'),
+    scaled: px > 0,
+    px: px || null,
+  };
+}
+
 /* ---------------- 预览台 ----------------
  * 扫 lang/models/textures/recipes 凑出物品、方块、配方、模型清单
  * 给前端网格用：物品 = 显示名 + 贴图；配方 = 材料 + 成品 */
@@ -309,34 +423,94 @@ async function scanBench(root) {
     } catch { /* 留空 */ }
   }
 
-  // 物品：models/item/<id>.json 决定存在，贴图按惯例 textures/item/<id>.png
+  // MC 里物品和方块常共用一个 id 和贴图。扫两个目录后按 id 合并，
+  // 避免界面重复显示；每条记下它原本属于哪一类、贴图在哪边。
   const itemModels = await walkJsonSafe(path.join(modDir, 'models', 'item'));
+  const blockModels = await walkJsonSafe(path.join(modDir, 'models', 'block'));
+  const blockStates = await walkJsonSafe(path.join(modDir, 'blockstates'));
+
+  const entriesById = new Map();
   for (const entry of itemModels) {
     const id = entry.replace(/\.json$/, '');
-    out.items.push({
+    entriesById.set(id, {
       id,
+      kind: 'item',
       name: stripItemBlock(lang[`item.${out.modid}.${id}`]) || id,
       nameEn: stripItemBlock(langEn[`item.${out.modid}.${id}`]) || '',
-      icon: `assets/${out.modid}/textures/item/${id}.png`,
+      icon: `src/main/resources/assets/${out.modid}/textures/item/${id}.png`,
       hasModel: true,
       hasIcon: await existsSafe(path.join(modDir, 'textures', 'item', `${id}.png`)),
     });
   }
-
-  // 方块：同 item，只是目录换成 block + blockstates/<id>.json
-  const blockModels = await walkJsonSafe(path.join(modDir, 'models', 'block'));
-  const blockStates = await walkJsonSafe(path.join(modDir, 'blockstates'));
   for (const entry of blockModels) {
     const id = entry.replace(/\.json$/, '');
-    out.blocks.push({
-      id,
+    const existing = entriesById.get(id);
+    const block = {
+      kind: 'block',
       name: stripItemBlock(lang[`block.${out.modid}.${id}`]) || id,
       nameEn: stripItemBlock(langEn[`block.${out.modid}.${id}`]) || '',
-      icon: `assets/${out.modid}/textures/block/${id}.png`,
+      icon: `src/main/resources/assets/${out.modid}/textures/block/${id}.png`,
+      hasModel: true,
       hasState: blockStates.includes(`${id}.json`),
       hasIcon: await existsSafe(path.join(modDir, 'textures', 'block', `${id}.png`)),
+    };
+    if (existing) {
+      // 同 id 共存：标记 kind=both，贴图有哪个用哪个，名字谁有算谁
+      existing.kind = 'both';
+      existing.hasItemModel = true;
+      existing.hasBlockState = block.hasState;
+      if (!existing.hasIcon && block.hasIcon) {
+        existing.icon = block.icon;
+        existing.hasIcon = true;
+      }
+      if (!existing.nameEn && block.nameEn) existing.nameEn = block.nameEn;
+      if (existing.name === existing.id && block.name !== block.id) existing.name = block.name;
+    } else {
+      entriesById.set(id, { id, ...block });
+    }
+  }
+  // 同时扫贴图目录：有些资源只有贴图没有模型（用户自己导的）
+  const texItem = await walkJsonSafe(path.join(modDir, 'textures', 'item'));
+  for (const file of texItem) {
+    const id = file.replace(/\.png$/, '');
+    if (entriesById.has(id)) continue;
+    entriesById.set(id, {
+      id,
+      kind: 'item',
+      name: stripItemBlock(lang[`item.${out.modid}.${id}`]) || id,
+      nameEn: stripItemBlock(langEn[`item.${out.modid}.${id}`]) || '',
+      icon: `src/main/resources/assets/${out.modid}/textures/item/${id}.png`,
+      hasIcon: true,
+      hasModel: false,
     });
   }
+  const texBlock = await walkJsonSafe(path.join(modDir, 'textures', 'block'));
+  for (const file of texBlock) {
+    const id = file.replace(/\.png$/, '');
+    const ex = entriesById.get(id);
+    if (ex) {
+      if (!ex.hasIcon) {
+        ex.icon = `src/main/resources/assets/${out.modid}/textures/block/${id}.png`;
+        ex.hasIcon = true;
+      }
+      continue;
+    }
+    entriesById.set(id, {
+      id,
+      kind: 'block',
+      name: stripItemBlock(lang[`block.${out.modid}.${id}`]) || id,
+      nameEn: stripItemBlock(langEn[`block.${out.modid}.${id}`]) || '',
+      icon: `src/main/resources/assets/${out.modid}/textures/block/${id}.png`,
+      hasIcon: true,
+      hasModel: false,
+      hasState: false,
+    });
+  }
+
+  // 老的 items/blocks 字段保留，兼容前端；merged 是新字段
+  out.entries = [...entriesById.values()].sort((a, b) => a.id.localeCompare(b.id));
+  out.items = out.entries.filter((e) => e.kind === 'item' || e.kind === 'both');
+  out.blocks = out.entries.filter((e) => e.kind === 'block' || e.kind === 'both');
 
   // 模型总数（统计行用）
   out.models = [
@@ -2127,6 +2301,41 @@ const server = http.createServer(async (req, res) => {
       const files = await listProjectFiles(project);
       const releases = await listReleases(project);
       json(res, 200, { files, project, root: `workspace/projects/${project}`, releases });
+      return;
+    }
+
+    /** 生图：save=1 直接落进工程 textures/<kind>/，否则只返回 base64 给前端预览 */
+    if (p === '/api/image' && req.method === 'POST') {
+      const cfg = loadConfig();
+      const body = await readJson(req);
+      const prompt = String(body.prompt || '').trim();
+      if (!prompt) return json(res, 400, { error: '没写描述' });
+      try {
+        const buf = await generateImage(cfg, {
+          prompt,
+          size: body.size,
+          model: body.model,
+        });
+        if (body.save) {
+          const saved = await saveTexture(
+            body.project || 'default',
+            body.kind === 'item' ? 'item' : 'block',
+            body.name || 'texture',
+            buf,
+            body.scale !== undefined ? body.scale : cfg.imageScale,
+          );
+          json(res, 200, {
+            ok: true,
+            ...saved,
+            b64: buf.toString('base64'),
+            files: await listProjectFiles(body.project || 'default'),
+          });
+          return;
+        }
+        json(res, 200, { ok: true, b64: buf.toString('base64') });
+      } catch (e) {
+        json(res, 502, { error: String(e.message || e) });
+      }
       return;
     }
 

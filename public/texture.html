@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AutoMods · 贴图工坊</title>
+  <link rel="icon" type="image/png" href="/assets/blockforge-logo.png" />
+  <script src="/vendor/skin.js"></script>
+  <script src="/vendor/mc-icons.js"></script>
+  <link rel="stylesheet" href="/vendor/tokens.css" />
+  <link rel="stylesheet" href="/vendor/simple.css" />
+  <link rel="stylesheet" href="/vendor/hx.css" />
+  <script>
+    try {
+      var saved = localStorage.getItem('blockforge.theme');
+      if (saved === 'dark' || saved === 'light') document.documentElement.dataset.theme = saved;
+    } catch (e) { /* 忽略 */ }
+  </script>
+  <link rel="stylesheet" href="/vendor/skins.css" />
+  <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/texture.css" />
+</head>
+<body>
+  <div class="tex-shell">
+    <aside class="tex-side">
+      <header>
+        <a class="learn-back" href="/" title="回到工作台">‹</a>
+        <b>贴图工坊</b>
+      </header>
+
+      <div class="tex-form">
+        <label class="set-field">
+          <span>存到哪个工程</span>
+          <select id="project"></select>
+        </label>
+
+        <label class="set-field">
+          <span>贴图标识（英文，存成这个名字）</span>
+          <input id="name" type="text" placeholder="glowing_block" spellcheck="false" />
+        </label>
+
+        <label class="set-field">
+          <span>种类</span>
+          <select id="kind">
+            <option value="block">方块 block</option>
+            <option value="item">物品 item</option>
+          </select>
+        </label>
+
+        <label class="set-field">
+          <span>描述（中英文都行，越具体越好）</span>
+          <textarea id="prompt" rows="4"
+            placeholder="会发光的南瓜灯，橙色带 carved 花纹，像素风，透明背景"></textarea>
+        </label>
+
+        <div class="set-grid">
+          <label class="set-field">
+            <span>出图尺寸</span>
+            <select id="size">
+              <option value="1024x1024" selected>1024×1024</option>
+              <option value="512x512">512×512</option>
+              <option value="2048x2048">2048×2048</option>
+            </select>
+          </label>
+          <label class="set-field">
+            <span>存前缩到</span>
+            <select id="scale">
+              <option value="16">16×16（MC 原味）</option>
+              <option value="32">32×32</option>
+              <option value="64" selected>64×64</option>
+              <option value="128">128×128</option>
+              <option value="0">不缩放，存原图</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="tex-auto">
+          <input id="mcStyle" type="checkbox" checked />
+          <span>自动加上 Minecraft 像素贴图风格前缀</span>
+        </label>
+
+        <button class="primary tex-go" id="go" type="button">生成贴图</button>
+        <small class="tex-note" id="note"></small>
+      </div>
+    </aside>
+
+    <main class="tex-main">
+      <div class="tex-stage" id="stage">
+        <div class="tex-empty" id="empty">
+          <i class="mc-ico" data-mc-icon="brush"></i>
+          <p>左边写一句描述，点「生成贴图」<br />出图后可以直接存进工程</p>
+        </div>
+        <div class="tex-preview" id="preview" hidden>
+          <div class="tex-checker">
+            <img id="img" alt="生成的贴图" />
+          </div>
+          <div class="tex-meta" id="meta"></div>
+          <div class="tex-actions">
+            <button class="primary" id="save" type="button">存进工程</button>
+            <button id="download" type="button">只下载</button>
+            <button id="again" type="button">重新生成</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tex-history">
+        <b>工程里已有的贴图</b>
+        <div class="tex-list" id="list"></div>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script src="/texture.js"></script>
+</body>
+</html>

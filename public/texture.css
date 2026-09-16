@@ -1,0 +1,223 @@
+/* 贴图工坊：左边表单，右边预览 + 已有贴图 */
+
+.tex-shell {
+  display: flex;
+  height: 100vh;
+  background: var(--page);
+  color: var(--text);
+}
+
+/* ---------------- 左栏 ---------------- */
+
+.tex-side {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  flex: none;
+  border-right: 1px solid var(--border);
+  background: var(--surface-alt);
+  overflow: auto;
+}
+
+.tex-side > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tex-form {
+  padding: 12px;
+}
+
+.tex-form .set-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.tex-form .set-field textarea:focus,
+.tex-form .set-field input:focus,
+.tex-form .set-field select:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.tex-auto {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tex-go {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.tex-note {
+  display: block;
+  margin-top: 8px;
+  min-height: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tex-note.bad {
+  color: var(--danger);
+}
+
+.tex-note.good {
+  color: var(--success);
+}
+
+/* ---------------- 右栏 ---------------- */
+
+.tex-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.tex-stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 30px;
+  overflow: auto;
+}
+
+.tex-empty {
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.tex-empty .mc-ico {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 12px;
+  opacity: .6;
+}
+
+.tex-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.tex-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 透明底棋盘格，方便看清 alpha */
+.tex-checker {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--checker-b);
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%, transparent 75%, var(--checker-a) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+.tex-checker img {
+  display: block;
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.tex-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tex-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tex-actions button {
+  padding: 8px 16px;
+  font-size: 13px;
+}
+
+/* ---------------- 已有贴图 ---------------- */
+
+.tex-history {
+  flex: none;
+  padding: 10px 20px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.tex-history > b {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+
+.tex-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 132px;
+  overflow: auto;
+}
+
+.tex-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px 5px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 11.5px;
+}
+
+.tex-chip img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background-color: var(--checker-b);
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%, transparent 75%, var(--checker-a) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+  border-radius: 3px;
+}
+
+.tex-chip span {
+  color: var(--text-secondary);
+}
+
+.tex-list:empty::after {
+  content: '这个工程还没有贴图';
+  font-size: 11.5px;
+  color: var(--text-muted);
+}

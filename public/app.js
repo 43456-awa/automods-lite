@@ -893,12 +893,16 @@
     host.hidden = false;
     panel.textContent = '';
     state.benchData = data;
-    state.benchTab = state.benchTab || 'items';
+    state.benchTab = state.benchTab || 'entries';
 
     const tabs = make('div', 'bench-tabs');
-    const labelOf = { items: `物品 ${data.items.length}`, blocks: `方块 ${data.blocks.length}`,
-      recipes: `配方 ${data.recipes.length}`, models: `模型 ${data.models.length}` };
-    ['items', 'blocks', 'recipes', 'models'].forEach((key) => {
+    const entries = data.entries || [];
+    const labelOf = {
+      entries: `资产 ${entries.length}`,
+      recipes: `配方 ${data.recipes.length}`,
+      models: `模型 ${data.models.length}`,
+    };
+    ['entries', 'recipes', 'models'].forEach((key) => {
       const btn = make('button', `bench-tab${state.benchTab === key ? ' on' : ''}`, labelOf[key]);
       btn.type = 'button';
       btn.onclick = () => { state.benchTab = key; mountBench(data); };
@@ -909,20 +913,18 @@
     const body = make('div', 'bench-body');
     panel.appendChild(body);
 
-    if (state.benchTab === 'items') {
-      renderBenchTiles(body, data.items, 'item', data.modid);
-    } else if (state.benchTab === 'blocks') {
-      renderBenchTiles(body, data.blocks, 'block', data.modid);
+    if (state.benchTab === 'entries' || !state.benchTab) {
+      renderBenchTiles(body, entries);
     } else if (state.benchTab === 'recipes') {
-      renderBenchRecipes(body, data.recipes, data.items, data.blocks, data.modid);
+      renderBenchRecipes(body, data.recipes, entries);
     } else if (state.benchTab === 'models') {
-      renderBenchModels(body, data.models, data.modid);
+      renderBenchModels(body, data.models);
     }
   }
 
-  function renderBenchTiles(body, list, kind, modid) {
+  function renderBenchTiles(body, list) {
     if (!list || !list.length) {
-      body.appendChild(make('p', 'bench-empty', kind === 'item' ? '还没有物品' : '还没有方块'));
+      body.appendChild(make('p', 'bench-empty', '还没有方块 / 物品'));
       return;
     }
     const grid = make('div', 'bench-grid');
@@ -937,8 +939,13 @@
         img.alt = entry.id;
         tile.appendChild(img);
       } else {
-        tile.appendChild(make('div', 'glyph', kind === 'item' ? '⚒' : '◻'));
+        const glyph = entry.kind === 'item' ? '⚒'
+          : entry.kind === 'block' ? '◻' : '◇';
+        tile.appendChild(make('div', 'glyph', glyph));
       }
+      const label = entry.kind === 'both'
+        ? `${entry.name} · 物&方`
+        : entry.kind === 'block' ? `${entry.name} · 方` : `${entry.name} · 物`;
       tile.appendChild(make('b', null, entry.name));
       tile.title = entry.nameEn ? `${entry.id} · ${entry.nameEn}` : entry.id;
       grid.appendChild(tile);
@@ -946,14 +953,13 @@
     body.appendChild(grid);
   }
 
-  function renderBenchRecipes(body, list, items, blocks, modid) {
+  function renderBenchRecipes(body, list, entries) {
     if (!list || !list.length) {
       body.appendChild(make('p', 'bench-empty', '还没有配方'));
       return;
     }
     const lookup = new Map();
-    (items || []).forEach((entry) => lookup.set(entry.id, entry));
-    (blocks || []).forEach((entry) => lookup.set(entry.id, entry));
+    (entries || []).forEach((entry) => lookup.set(entry.id, entry));
     list.forEach((recipe) => {
       const row = make('div', 'bench-recipe');
       const grid = make('div', 'bench-recipe-grid');
@@ -996,7 +1002,7 @@
     });
   }
 
-  function renderBenchModels(body, list, modid) {
+  function renderBenchModels(body, list) {
     if (!list || !list.length) {
       body.appendChild(make('p', 'bench-empty', '还没有模型'));
       return;
@@ -1334,6 +1340,43 @@
     host.appendChild(listHost);
     renderModelPicker(listHost, model, state.models);
 
+    host.appendChild(make('p', 'set-head', '贴图生成'));
+    const imgBase = field('生图接口地址', make('input'),
+      '留空就沿用上面的地址。商汤 SenseNova U1.5 Lite 走标准 /images/generations');
+    imgBase.value = cfg.imageBaseUrl || '';
+    imgBase.placeholder = cfg.baseUrl || 'https://…/v1';
+    const imgKey = field('生图密钥', make('input'), '留空就沿用上面的密钥');
+    imgKey.type = 'password';
+    imgKey.placeholder = cfg.imageApiKey ? '已保存，留空不改动' : '（沿用上面的）';
+    const imgModel = field('生图模型', make('input'), '例如 sensenova-u1.5-lite / sensenova-u1-fast');
+    imgModel.value = cfg.imageModel || '';
+
+    const imgGrid = make('div', 'set-grid');
+    host.appendChild(imgGrid);
+    const imgSize = make('select');
+    ['1024x1024', '512x512', '2048x2048'].forEach((s) => {
+      const opt = make('option', null, s);
+      opt.value = s;
+      imgSize.appendChild(opt);
+    });
+    imgSize.value = cfg.imageSize || '1024x1024';
+    const imgScale = make('select');
+    [[16, '16×16（MC 原味）'], [32, '32×32'], [64, '64×64'], [128, '128×128'], [0, '不缩放']]
+      .forEach(([v, label]) => {
+        const opt = make('option', null, label);
+        opt.value = String(v);
+        imgScale.appendChild(opt);
+      });
+    imgScale.value = String(cfg.imageScale === undefined ? 64 : cfg.imageScale);
+    const g5 = make('label', 'set-field');
+    g5.appendChild(make('span', null, '出图尺寸'));
+    g5.appendChild(imgSize);
+    const g6 = make('label', 'set-field');
+    g6.appendChild(make('span', null, '存前缩到'));
+    g6.appendChild(imgScale);
+    imgGrid.appendChild(g5);
+    imgGrid.appendChild(g6);
+
     host.appendChild(make('p', 'set-head', '行为'));
     const grid = make('div', 'set-grid');
     host.appendChild(grid);
@@ -1385,8 +1428,13 @@
         historyLimit: Number(ctx.value) || 24,
         apiTimeoutSec: Number(timeout.value) || 180,
         gradleCmd: gradle.value.trim(),
+        imageBaseUrl: imgBase.value.trim(),
+        imageModel: imgModel.value.trim(),
+        imageSize: imgSize.value,
+        imageScale: Number(imgScale.value) || 0,
       };
       if (apiKey.value.trim()) body.apiKey = apiKey.value.trim();
+      if (imgKey.value.trim()) body.imageApiKey = imgKey.value.trim();
       return body;
     };
     host._effort = effort;
@@ -1638,7 +1686,13 @@
       document.querySelector('.shell').classList.remove('side-closed');
       $('openSide').hidden = true;
     };
-    ['newTexture', 'modelEntry', 'marketEntry', 'assetsEntry'].forEach((id) => {
+    // 「贴图」是本地版真做了的：带当前工程跳过去
+    $('newTexture').onclick = (event) => {
+      if (!state.project) return; // 没有选中工程就让它正常跳，那边再选
+      event.preventDefault();
+      window.location.href = `/texture.html?project=${encodeURIComponent(state.project)}`;
+    };
+    ['modelEntry', 'marketEntry', 'assetsEntry'].forEach((id) => {
       $(id).onclick = (event) => {
         event.preventDefault();
         toast('这一块在主站是云端服务，本地版没接', 'bad');
