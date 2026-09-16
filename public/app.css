@@ -310,3 +310,145 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
+
+/* ---------------- 预览台（hx-bench） ---------------- */
+
+.bench-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bench-tab {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bench-tab:hover {
+  color: var(--text);
+}
+
+.bench-tab.on {
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+
+.bench-body {
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.bench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+
+.bench-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  text-align: center;
+  cursor: default;
+}
+
+.bench-tile.no-icon {
+  border-style: dashed;
+}
+
+.bench-tile img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.bench-tile .glyph {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border-radius: 4px;
+}
+
+.bench-tile b {
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.bench-tile small {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+.bench-recipe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+
+.bench-recipe:last-child {
+  border-bottom: 0;
+}
+
+.bench-recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 24px);
+  grid-template-rows: repeat(3, 24px);
+  gap: 2px;
+}
+
+.bench-recipe-grid .slot {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.bench-recipe-grid .slot.has {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.bench-arrow {
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.bench-recipe b {
+  font-size: 12px;
+}
+
+.bench-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}

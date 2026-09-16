@@ -281,6 +281,128 @@ async function listReleases(project) {
   }
 }
 
+/* ---------------- 预览台 ----------------
+ * 扫 lang/models/textures/recipes 凑出物品、方块、配方、模型清单
+ * 给前端网格用：物品 = 显示名 + 贴图；配方 = 材料 + 成品 */
+async function scanBench(root) {
+  const assets = path.join(root, 'src', 'main', 'resources', 'assets');
+  const mods = await readdirSafe(assets);
+  const out = { modid: mods[0] || '', items: [], blocks: [], recipes: [], models: [] };
+  if (!out.modid) return out;
+  const modDir = path.join(assets, out.modid);
+
+  // lang 文件剥出 item.* / block.* → {id, name, nameEn}
+  const lang = {};
+  const langEn = {};
+  for (const file of ['zh_cn.json', 'zh_cn.lang', 'en_us.json', 'en_us.lang']) {
+    const text = await readTextSafe(path.join(modDir, 'lang', file));
+    if (!text) continue;
+    try {
+      if (file.endsWith('.json')) Object.assign(lang, JSON.parse(text));
+    } catch { /* 留空 */ }
+  }
+  for (const file of ['en_us.json', 'en_us.lang']) {
+    const text = await readTextSafe(path.join(modDir, 'lang', file));
+    if (!text) continue;
+    try {
+      if (file.endsWith('.json')) Object.assign(langEn, JSON.parse(text));
+    } catch { /* 留空 */ }
+  }
+
+  // 物品：models/item/<id>.json 决定存在，贴图按惯例 textures/item/<id>.png
+  const itemModels = await walkJsonSafe(path.join(modDir, 'models', 'item'));
+  for (const entry of itemModels) {
+    const id = entry.replace(/\.json$/, '');
+    out.items.push({
+      id,
+      name: stripItemBlock(lang[`item.${out.modid}.${id}`]) || id,
+      nameEn: stripItemBlock(langEn[`item.${out.modid}.${id}`]) || '',
+      icon: `assets/${out.modid}/textures/item/${id}.png`,
+      hasModel: true,
+      hasIcon: await existsSafe(path.join(modDir, 'textures', 'item', `${id}.png`)),
+    });
+  }
+
+  // 方块：同 item，只是目录换成 block + blockstates/<id>.json
+  const blockModels = await walkJsonSafe(path.join(modDir, 'models', 'block'));
+  const blockStates = await walkJsonSafe(path.join(modDir, 'blockstates'));
+  for (const entry of blockModels) {
+    const id = entry.replace(/\.json$/, '');
+    out.blocks.push({
+      id,
+      name: stripItemBlock(lang[`block.${out.modid}.${id}`]) || id,
+      nameEn: stripItemBlock(langEn[`block.${out.modid}.${id}`]) || '',
+      icon: `assets/${out.modid}/textures/block/${id}.png`,
+      hasState: blockStates.includes(`${id}.json`),
+      hasIcon: await existsSafe(path.join(modDir, 'textures', 'block', `${id}.png`)),
+    });
+  }
+
+  // 模型总数（统计行用）
+  out.models = [
+    ...itemModels.map((n) => `item/${n}`),
+    ...blockModels.map((n) => `block/${n}`),
+  ];
+
+  // 配方：MC 1.21+ 改成了单数 recipe/，1.20- 还是 recipes/，两个都扫
+  // 注意配方在 src/main/resources/data/<modid>/，不在 assets 下
+  const dataDir = path.join(root, 'src', 'main', 'resources', 'data', out.modid);
+  for (const sub of ['recipes', 'recipe']) {
+    const recipeFiles = await walkJsonSafe(path.join(dataDir, sub));
+    for (const file of recipeFiles) {
+      const text = await readTextSafe(path.join(dataDir, sub, file));
+      if (!text) continue;
+      let json;
+      try { json = JSON.parse(text); } catch { continue; }
+      const outSpec = json && json.result;
+      if (!outSpec) continue;
+      // MC 1.21+ 字段是 id，1.20- 是 item/block；字符串直接就是 id
+      const outId = typeof outSpec === 'string'
+        ? outSpec.replace(/^\d+x/, '')
+        : (outSpec.id || outSpec.item || outSpec.block || '');
+      if (!outId) continue;
+      const cleanId = outId.replace(/^[^:]+:/, '').replace(/^\d+x/, '');
+      out.recipes.push({
+        id: `${sub}/${file.replace(/\.json$/, '')}`,
+        out: cleanId,
+        count: typeof outSpec === 'string' ? Number(outSpec.match(/^(\d+)x/)?.[1] || 1)
+          : Number(outSpec.count || 1),
+        // 显式声明 shapeless 才是无序，其它（有 pattern 或 type 是 shaped）都算有序
+        shaped: json.type !== 'minecraft:crafting_shapeless',
+        pattern: Array.isArray(json.pattern) ? json.pattern.slice() : [],
+        // 把键剥前缀方便前端按 ID 查
+        keys: Object.fromEntries(Object.entries(json.key || {}).map(([k, v]) => [
+          k, String(v).replace(/^[^:]+:/, ''),
+        ])),
+      });
+    }
+  }
+  return out;
+}
+
+function stripItemBlock(s) {
+  return String(s || '').replace(/\s+/g, ' ').trim();
+}
+
+async function readdirSafe(dir) {
+  try { return await fsp.readdir(dir); } catch { return []; }
+}
+
+async function readTextSafe(file) {
+  try { return await fsp.readFile(file, 'utf8'); } catch { return null; }
+}
+
+async function existsSafe(file) {
+  try { await fsp.access(file); return true; } catch { return false; }
+}
+
+async function walkJsonSafe(dir) {
+  try {
+    const entries = await fsp.readdir(dir);
+    return entries.filter((n) => n.endsWith('.json')).sort();
+  } catch { return []; }
+}
+
 /* ---------------- MIME ---------------- */
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -2005,6 +2127,20 @@ const server = http.createServer(async (req, res) => {
       const files = await listProjectFiles(project);
       const releases = await listReleases(project);
       json(res, 200, { files, project, root: `workspace/projects/${project}`, releases });
+      return;
+    }
+
+    /** 预览台：扫工程的 lang/models/textures/recipes 凑出 items/blocks/recipes 给前端摆网格 */
+    if (p === '/api/bench' && req.method === 'GET') {
+      const project = url.searchParams.get('project') || 'default';
+      const root = ensureProject(project);
+      if (!root) return json(res, 400, { error: 'bad project' });
+      try {
+        const bench = await scanBench(root);
+        json(res, 200, { project, ...bench });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
       return;
     }
 

@@ -336,14 +336,16 @@
     state.chatId = chat.id;
     state.project = chat.project;
     state.title = chat.title || '对话制作';
+    state._chatMessages = chat.messages || [];
     $('pageTitle').textContent = state.title;
     $('projectId').hidden = false;
     $('projectId').textContent = chat.project || '';
-    $('hero').hidden = (chat.messages || []).length > 0;
+    $('hero').hidden = state._chatMessages.length > 0;
     $('starters').hidden = true;
-    renderHistory(chat.messages || []);
+    renderHistory(state._chatMessages);
     renderChats();
     setRunState('空闲', false);
+    refreshUsage();
     await loadAssets(true);
   }
 
@@ -615,7 +617,6 @@
         if (!state.thinkEntry) {
           state.thinkEntry = stepRow('思考', '');
           state.thinkText = '';
-          state.thinkSteps = 0;
         }
         state.thinkText += text;
         const brief = state.thinkEntry.body.querySelector('.hx-brief');
@@ -721,6 +722,7 @@
     if (!state.project) {
       state.files = [];
       renderAssets();
+      mountBench(null);
       return;
     }
     try {
@@ -728,8 +730,10 @@
       state.files = data.files || [];
       state.releases = data.releases || [];
       renderAssets();
+      loadBench().catch(() => mountBench(null));
     } catch {
       if (force) toast('产物列表没拉到', 'bad');
+      mountBench(null);
     }
   }
 
@@ -862,6 +866,152 @@
     return '·';
   }
 
+  /* ------------------------------------------------------------ 预览台 */
+
+  async function loadBench() {
+    if (!state.project) return mountBench(null);
+    try {
+      const data = await api(`/api/bench?project=${encodeURIComponent(state.project)}`);
+      mountBench(data);
+    } catch {
+      mountBench(null);
+    }
+  }
+
+  function mountBench(data) {
+    const panel = $('benchPanel');
+    const host = $('bench');
+    if (!data || !panel || !host) return;
+    const total = (data.items || []).length
+      + (data.blocks || []).length
+      + (data.recipes || []).length
+      + (data.models || []).length;
+    if (total === 0) {
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    panel.textContent = '';
+    state.benchData = data;
+    state.benchTab = state.benchTab || 'items';
+
+    const tabs = make('div', 'bench-tabs');
+    const labelOf = { items: `物品 ${data.items.length}`, blocks: `方块 ${data.blocks.length}`,
+      recipes: `配方 ${data.recipes.length}`, models: `模型 ${data.models.length}` };
+    ['items', 'blocks', 'recipes', 'models'].forEach((key) => {
+      const btn = make('button', `bench-tab${state.benchTab === key ? ' on' : ''}`, labelOf[key]);
+      btn.type = 'button';
+      btn.onclick = () => { state.benchTab = key; mountBench(data); };
+      tabs.appendChild(btn);
+    });
+    panel.appendChild(tabs);
+
+    const body = make('div', 'bench-body');
+    panel.appendChild(body);
+
+    if (state.benchTab === 'items') {
+      renderBenchTiles(body, data.items, 'item', data.modid);
+    } else if (state.benchTab === 'blocks') {
+      renderBenchTiles(body, data.blocks, 'block', data.modid);
+    } else if (state.benchTab === 'recipes') {
+      renderBenchRecipes(body, data.recipes, data.items, data.blocks, data.modid);
+    } else if (state.benchTab === 'models') {
+      renderBenchModels(body, data.models, data.modid);
+    }
+  }
+
+  function renderBenchTiles(body, list, kind, modid) {
+    if (!list || !list.length) {
+      body.appendChild(make('p', 'bench-empty', kind === 'item' ? '还没有物品' : '还没有方块'));
+      return;
+    }
+    const grid = make('div', 'bench-grid');
+    list.forEach((entry) => {
+      const tile = make('div', `bench-tile${entry.hasIcon ? '' : ' no-icon'}`);
+      const url = entry.hasIcon
+        ? `/dl/${encodeURIComponent(state.project)}/${entry.icon.split('/').map(encodeURIComponent).join('/')}`
+        : '';
+      if (url) {
+        const img = new Image();
+        img.src = url;
+        img.alt = entry.id;
+        tile.appendChild(img);
+      } else {
+        tile.appendChild(make('div', 'glyph', kind === 'item' ? '⚒' : '◻'));
+      }
+      tile.appendChild(make('b', null, entry.name));
+      tile.title = entry.nameEn ? `${entry.id} · ${entry.nameEn}` : entry.id;
+      grid.appendChild(tile);
+    });
+    body.appendChild(grid);
+  }
+
+  function renderBenchRecipes(body, list, items, blocks, modid) {
+    if (!list || !list.length) {
+      body.appendChild(make('p', 'bench-empty', '还没有配方'));
+      return;
+    }
+    const lookup = new Map();
+    (items || []).forEach((entry) => lookup.set(entry.id, entry));
+    (blocks || []).forEach((entry) => lookup.set(entry.id, entry));
+    list.forEach((recipe) => {
+      const row = make('div', 'bench-recipe');
+      const grid = make('div', 'bench-recipe-grid');
+      const grid3 = [['', '', ''], ['', '', ''], ['', '', '']];
+      if (recipe.pattern && recipe.pattern.length) {
+        recipe.pattern.forEach((line, rowIndex) => {
+          if (rowIndex >= 3) return;
+          for (let col = 0; col < 3 && col < line.length; col += 1) {
+            const symbol = line[col] === ' ' ? '' : line[col];
+            grid3[rowIndex][col] = symbol;
+          }
+        });
+      } else if (recipe.keys) {
+        // 无序配方只列材料，不摆位置
+        grid3[1][1] = '';
+      }
+      for (let r = 0; r < 3; r += 1) {
+        for (let c = 0; c < 3; c += 1) {
+          const sym = grid3[r][c];
+          const cell = make('div', 'slot');
+          if (sym && recipe.keys && recipe.keys[sym]) {
+            const fullId = String(recipe.keys[sym]).replace(/^[^:]+:/, '');
+            cell.classList.add('has');
+            cell.textContent = lookup.get(fullId)?.name?.slice(0, 4) || fullId.slice(0, 4);
+            cell.title = fullId;
+          } else if (sym) {
+            cell.textContent = sym;
+          }
+          grid.appendChild(cell);
+        }
+      }
+      row.appendChild(grid);
+      row.appendChild(make('span', 'bench-arrow', '→'));
+      const info = make('div');
+      info.appendChild(make('b', null, recipe.out));
+      info.appendChild(make('small', null,
+        `${recipe.shaped ? '有序' : '无序'} · 出 ${recipe.count}`));
+      row.appendChild(info);
+      body.appendChild(row);
+    });
+  }
+
+  function renderBenchModels(body, list, modid) {
+    if (!list || !list.length) {
+      body.appendChild(make('p', 'bench-empty', '还没有模型'));
+      return;
+    }
+    const grid = make('div', 'bench-grid');
+    list.forEach((rel) => {
+      const tile = make('div', 'bench-tile');
+      tile.appendChild(make('div', 'glyph', '{}'));
+      tile.appendChild(make('b', null, rel.split('/').pop().replace(/\.json$/, '')));
+      tile.title = rel;
+      grid.appendChild(tile);
+    });
+    body.appendChild(grid);
+  }
+
   async function buildJar() {
     if (!state.project) return;
     const btn = state.buildButton;
@@ -897,8 +1047,13 @@
       $('balance').textContent = '-- 次请求';
     }
     const total = (state.cfg && Number(state.cfg.historyLimit)) || 24;
-    const used = 0;
+    const used = state.chatId && state._chatMessages
+      ? state._chatMessages.length
+      : 0;
     $('ctxText').textContent = `上下文 ${used} / ${total} 条`;
+    $('ctxFill').style.width = total > 0
+      ? `${Math.min(100, Math.round((used / total) * 100))}%`
+      : '0%';
   }
 
   /* ------------------------------------------------------------ 模型列表 */
@@ -1614,14 +1769,13 @@
     };
     $('renameCancel').onclick = () => closeModal('renameDialog');
     $('renameGo').onclick = confirmRename;
-    $('renameInput').oninput = () => {
-      const ok = /^[a-zA-Z][a-zA-Z0-9_]*$/.test($('renameInput').value.trim())
-        || $('renameInput').value.trim().length > 0;
+    const refreshRenameGo = () => {
+      const ok = $('renameInput').value.trim().length > 0
+        && $('renameAck').checked;
       $('renameGo').disabled = !ok;
     };
-    $('renameAck').onchange = (event) => {
-      $('renameGo').disabled = !event.target.checked;
-    };
+    $('renameInput').oninput = refreshRenameGo;
+    $('renameAck').onchange = refreshRenameGo;
     $('settingsCancel').onclick = () => closeModal('settingsDialog');
     $('settingsSave').onclick = saveSettings;
     $('settingsCheck').onclick = checkUpdate;
