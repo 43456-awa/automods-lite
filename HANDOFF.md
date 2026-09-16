@@ -51,6 +51,7 @@
 - `?chat=<id>` URL 参数直接定位某个项目，可收藏 / 分享。
 - `/api/env`：检测系统 gradle + 工程 gradlew（启动页用）。
 - `/api/usage`：累计请求次数 + 当次输出字节（写到 `usage.json`，已 gitignore）。
+- `/api/bench` + 预览台（`.hx-bench`）：扫工程目录自动汇总物品 / 方块 / 配方 / 模型，输入栏上方 4 个 tab，无产物时整块 hidden。配方按 `pattern` 摆 3×3 网格，材料名连到物品 / 方块的 lang 显示名。
 
 ---
 
@@ -61,7 +62,7 @@
 | v0.3.15 | `07ee7d1` | 布局/滚动、中文思考、max 超时加长、工具回执瘦身、自动存 key |
 | v0.3.16 | `c5347fd` | 流式不被连接超时杀掉；目录树；zip；rN jar |
 | v0.3.17 | `e035ed0` | 强制 action-first 节奏（短思考、立刻 write_file） |
-| **v0.4.0** | **`53e7faf`** | **1:1 复刻 automods.cn UI + 实跑验证 + status/think 修复** |
+| **v0.4.0** | **`53e7faf` + `b44d5a1` + `cb67ea8`** | **1:1 复刻 automods.cn UI + 实跑验证 + status/think 修复 + 预览台** |
 
 ---
 
