@@ -1,5 +1,5 @@
 {
-  "version": "0.3.11",
-  "notes": "Add update.bat to repair missing files from GitHub",
+  "version": "0.3.12",
+  "notes": "update.bat uses jsDelivr mirrors for CN networks",
   "minNode": 18
 }
