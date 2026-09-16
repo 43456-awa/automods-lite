@@ -15,6 +15,7 @@
     stepNodes: new Map(),
     liveBubble: null,
     liveText: "",
+    lastErrorAt: 0,
   };
 
   const els = {
@@ -1041,8 +1042,10 @@ ${lines.join("\n")}
         addStep(data.ok ? "完成" : "失败", (data.out || "").slice(0, 80), !data.ok, data.id);
         break;
       case "error":
+        state.lastErrorAt = Date.now();
         addMsg("system", data.text || "出错");
         els.conversation.lastChild?.classList.add("err");
+        toast(data.text || "出错");
         break;
       case "files":
         if (data.project) state.project = data.project;
@@ -1067,8 +1070,12 @@ ${lines.join("\n")}
         break;
       case "run_end":
         if (state.liveBubble) cancelLive();
-        // 有错误时不硬清思考
-        hideThink(true);
+        // 刚出过错就保留思考框，避免“突然全没了”
+        if (state.lastErrorAt && Date.now() - state.lastErrorAt < 3000) {
+          collapseThinkKeep();
+        } else {
+          hideThink(true);
+        }
         streamAbort = null;
         setBusy(false);
         loadFiles(true);

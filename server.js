@@ -1095,6 +1095,8 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
   let content = '';
   let finishReason = '';
   const toolMap = new Map();
+  let thinkChars = 0;
+  let lastHeartbeat = Date.now();
   // max/xhigh 推理时，上游可能长时间只出 reasoning 或整段缓冲，idle 放宽
   const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
   const idleFloor = (effort === 'max' || effort === 'xhigh') ? 240 : 45;
@@ -1111,7 +1113,18 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
     const delta = json.choices?.[0]?.delta;
     if (!delta) return;
     const think = delta.reasoning_content || delta.reasoning;
-    if (think) emit({ k: 'think_delta', text: think });
+    if (think) {
+      thinkChars += think.length;
+      emit({ k: 'think_delta', text: think });
+      const now = Date.now();
+      if (now - lastHeartbeat > 15000) {
+        lastHeartbeat = now;
+        emit({
+          k: 'status',
+          text: `思考中…（约 ${Math.round(thinkChars / 1000)}k 字，有数据不会超时）`,
+        });
+      }
+    }
     if (delta.content) {
       content += delta.content;
       emit({ k: 'say_delta', text: delta.content });
@@ -1139,10 +1152,19 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
     }, idleSec, signal, emit);
   } catch (e) {
     const msg = String(e?.message || e);
-    // 半路断了：把已收到的 content/toolCalls 交回去，别整段丢掉
-    if (/idle timeout|network|terminated|aborted|socket|ECONNRESET|UND_ERR/i.test(msg)
-      && (content || toolMap.size)) {
-      emit({ k: 'status', text: '上游中途断开，使用已收到的部分继续…' });
+    const gotAnything = Boolean(content || toolMap.size);
+    // 半路断了：有正文/工具就尽量继续；只有思考也要明确告诉用户
+    if (/idle timeout|network|terminated|aborted|socket|ECONNRESET|UND_ERR|无新数据/i.test(msg)) {
+      if (gotAnything) {
+        emit({ k: 'status', text: '上游中途断开，使用已收到的部分继续…' });
+      } else {
+        emit({
+          k: 'error',
+          text: `上游在思考阶段断开（${msg.slice(0, 80)}）。已保留思考。可发送「继续写文件」，并把推理强度调到 high。`,
+        });
+        emit({ k: 'think_keep' });
+        throw new Error(msg);
+      }
     } else {
       throw e;
     }
@@ -1244,7 +1266,7 @@ async function runAgent(chat, emit) {
       }
       emit({ k: 'status', text: round === 0 ? '正在思考…' : `工具执行后继续（第 ${round + 1} 轮）` });
 
-      const { content, toolCalls } = await callChatStream(
+      const { content, toolCalls, finishReason } = await callChatStream(
         cfg, messages, TOOLS, ac.signal, emit,
       );
 
@@ -1252,9 +1274,31 @@ async function runAgent(chat, emit) {
       if (content) {
         emit({ k: 'say_settled', text: content });
         liveNode = false;
-      } else if (!toolCalls.length && round > 0) {
-        // 断流后什么都没拿到，别假装做完
-        emit({ k: 'error', text: '本轮没有拿到有效输出（可能中途断线），可直接再说一次「继续」' });
+      }
+
+      // 只有思考、没有正文也没有工具 → 必须明确报错，不能静默结束
+      if (!content && !toolCalls.length) {
+        if (finishReason === 'length') {
+          emit({
+            k: 'error',
+            text: '本轮思考太多，被 max_tokens 截断，没有正文也没有写文件。请把推理强度改为 high，然后发送「继续写文件」。',
+          });
+        } else {
+          emit({
+            k: 'error',
+            text: '本轮只有思考、没有输出正文或工具调用，已停止。请发送「继续写文件」，或把推理强度调到 high 再试。',
+          });
+        }
+        emit({ k: 'say_settle_cancel' });
+        emit({ k: 'think_keep' });
+        chat.messages.push({
+          role: 'assistant',
+          content: finishReason === 'length'
+            ? '出错了：思考被 max_tokens 截断，本轮未写文件'
+            : '出错了：本轮只有思考，没有正文或工具',
+          at: Date.now(),
+        });
+        break;
       }
 
       emit({
