@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { getTracks, getChapter, askAboutChapter, generateChapter, deleteCustom } from './learn.mjs';
 import { applyGithubUpdate } from './updater.mjs';
+import {
+  listFacts, addFact, addFacts, deleteFact, clearFacts,
+  searchFacts, memoryPromptBlock, parseFactsJson,
+} from './memory.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
@@ -35,22 +39,22 @@ const DEFAULT_CONFIG = {
   workspaceName: 'MyNeoForgeMod',
   modId: 'mymod',
   mcVersion: '1.21.1',
+  // neoforge | forge
+  loader: 'neoforge',
   gradleCmd: '',
   gradleTimeoutSec: 180,
-  // GitHub 更新源：owner/repo
   updateRepo: '43456-awa/automods-lite',
-  // 模型调用参数
   temperature: 0.4,
   topP: 1,
   maxTokens: 8192,
-  // off | low | medium | high
   reasoningEffort: 'off',
-  // auto | openai | qwen | gemini | none — 思考参数映射到哪种上游字段
   reasoningStyle: 'auto',
-  // 发给上游时最多带多少条历史消息（控制上下文占用；真正窗口大小由模型决定）
   historyLimit: 36,
-  // 上游 chat/completions 超时（秒）
   apiTimeoutSec: 180,
+  // 上游 429/5xx 最多重试几次
+  apiRetries: 4,
+  // 对话结束后自动总结制作者偏好到 memory.json
+  autoMemory: true,
   port: PORT,
 };
 
@@ -228,37 +232,49 @@ function toPascal(id) {
     .join('');
 }
 
-function systemPrompt(cfg, project) {
-  return `你是「automods-lite」本地工作台的 NeoForge 开发助手。当前目标：
+function systemPrompt(cfg, project, userQuery) {
+  const loader = String(cfg.loader || 'neoforge').toLowerCase();
+  const isForge = loader === 'forge';
+  const memBlock = memoryPromptBlock(userQuery || `${cfg.modId} ${cfg.workspaceName} ${project}`);
+
+  const tomlPath = isForge
+    ? `src/main/resources/META-INF/mods.toml`
+    : `src/main/resources/META-INF/neoforge.mods.toml`;
+  const depLine = isForge
+    ? `依赖写 forge / minecraft；注册注意 Forge 与 NeoForge API 差异。`
+    : `依赖写 neoforge / minecraft；注册用 DeferredRegister + modEventBus。`;
+
+  return `你是「automods-lite」本地工作台的 Minecraft 模组开发助手。当前目标：
 - Minecraft ${cfg.mcVersion}
-- 加载器 NeoForge
+- 加载器：${isForge ? 'Forge' : 'NeoForge'}
 - 模组 id：${cfg.modId}
 - 工程名：${cfg.workspaceName}
 - 本对话工程目录：workspace/projects/${project}/
-
+${memBlock}
 规则：
 1. 需要落盘的代码/JSON/资源，必须调用 write_file，不要只贴在对话里让用户复制。
 2. 一次可以写多个文件。Java 包名与路径一致：src/main/java/...
-3. 资源：src/main/resources/META-INF/neoforge.mods.toml、assets/${cfg.modId}/...、data/${cfg.modId}/...
-4. 注册用 DeferredRegister + modEventBus；modId 全小写。
+3. 清单文件：${tomlPath}；资源 assets/${cfg.modId}/...、data/${cfg.modId}/...
+4. ${depLine}modId 全小写。
 5. 回复用简体中文，短句说明你做了什么、下一步建议。
-6. 不要编造未实现的 API；不确定时选 1.21.1 常见写法并说明。
-7. 用户要求编译/构建时，调用 run_gradle（默认参数 build）。工程里需要有 gradlew 或用户已配置 gradleCmd。
+6. 不要编造未实现的 API；不确定时选该版本常见写法并说明。
+7. 用户要求编译/构建时，调用 run_gradle（默认 build）。
 8. 贴图 png 无法用工具生成，路径写好并告诉用户自己放文件。
 
 标准目录：
 src/main/java/com/example/${cfg.modId}/
   ${toPascal(cfg.modId)}Mod.java
   registry/ModItems.java
-src/main/resources/META-INF/neoforge.mods.toml
+${tomlPath}
 src/main/resources/assets/${cfg.modId}/lang/zh_cn.json
 src/main/resources/assets/${cfg.modId}/models/item/xxx.json
 `;
 }
 
 function toApiMessages(chat, cfg) {
-  const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default') }];
   const src = chat.messages || [];
+  const lastUser = [...src].reverse().find((m) => m.role === 'user')?.content || '';
+  const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default', lastUser) }];
   const BUDGET = Math.max(8, Number(cfg.historyLimit) || 36);
   let start = Math.max(0, src.length - BUDGET);
   while (start > 0 && src[start]?.role === 'tool') start -= 1;
@@ -591,6 +607,188 @@ function withTimeoutSignal(signal, sec) {
   return AbortSignal.any([signal, timeout]);
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 非流式单次补全（想法优化 / 记忆总结 / 规划用）— 含 429/5xx 重试 */
+async function callChatCompletionsOnce(cfg, messages, opts = {}) {
+  const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
+  if (!base) throw new Error('未配置 baseUrl');
+  if (!cfg.apiKey || cfg.apiKey.startsWith('sk-在这里')) throw new Error('未配置 apiKey');
+  const body = {
+    model: cfg.model,
+    messages,
+    temperature: opts.temperature ?? 0.5,
+    max_tokens: opts.maxTokens ?? 800,
+  };
+  if (opts.jsonMode) body.response_format = { type: 'json_object' };
+
+  const max = Math.max(0, Number(cfg.apiRetries) || 4);
+  let attempt = 0;
+  let lastErr = null;
+
+  while (attempt <= max) {
+    let res;
+    try {
+      res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cfg.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(opts.timeoutMs || 60000),
+      });
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= max) throw e;
+      const wait = Math.min(15000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+      await sleep(wait);
+      attempt += 1;
+      continue;
+    }
+
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+
+    const t = await res.text().catch(() => '');
+    // json_mode 不支持时去掉再试一次（不占重试额度）
+    if (opts.jsonMode && (res.status === 400 || res.status === 422)) {
+      return callChatCompletionsOnce(cfg, messages, { ...opts, jsonMode: false });
+    }
+
+    lastErr = new Error(`API ${res.status}: ${t.slice(0, 220)}`);
+
+    const retriable = res.status === 429 || res.status >= 500 || res.status === 408;
+    if (!retriable || attempt >= max) throw lastErr;
+
+    const ra = Number(res.headers.get('Retry-After'));
+    const wait = (ra > 0 ? ra * 1000 : Math.min(15000, 1200 * 2 ** attempt + Math.floor(Math.random() * 600)));
+    opts.onRetry?.({ attempt: attempt + 1, max, waitMs: wait, status: res.status });
+    await sleep(wait);
+    attempt += 1;
+  }
+  throw lastErr || new Error('上游请求失败');
+}
+
+/** 尽量从模型输出里抠出合法 JSON */
+function extractJsonObject(raw) {
+  if (!raw) return null;
+  let t = String(raw).trim();
+  // 去掉 ```json ... ```
+  t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  // 直接试
+  try { return JSON.parse(t); } catch { /* continue */ }
+  // 找第一段平衡的 {...}
+  const start = t.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < t.length; i += 1) {
+    const ch = t[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const slice = t.slice(start, i + 1);
+        try { return JSON.parse(slice); } catch { /* try repair */ }
+        // 简单修复：去掉尾逗号
+        try {
+          return JSON.parse(slice.replace(/,\s*([}\]])/g, '$1'));
+        } catch { /* continue */ }
+        break;
+      }
+    }
+  }
+  // lastIndexOf 兜底
+  const end = t.lastIndexOf('}');
+  if (end > start) {
+    try { return JSON.parse(t.slice(start, end + 1)); } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function normalizePlan(plan) {
+  if (!plan || typeof plan !== 'object') return null;
+  const groups = Array.isArray(plan.groups) ? plan.groups : [];
+  const cleaned = groups
+    .map((g, gi) => ({
+      id: String(g.id || `g${gi + 1}`),
+      title: String(g.title || `决策 ${gi + 1}`),
+      desc: String(g.desc || ''),
+      options: (Array.isArray(g.options) ? g.options : [])
+        .map((o, oi) => ({
+          id: String(o.id || `o${oi + 1}`),
+          label: String(o.label || o.title || `方案 ${oi + 1}`),
+          detail: String(o.detail || o.desc || ''),
+          recommended: Boolean(o.recommended || o.rec),
+        }))
+        .filter((o) => o.label && o.label !== `方案 ${o.id}`)
+        .slice(0, 4),
+    }))
+    .filter((g) => g.options.length > 0)
+    .slice(0, 6);
+  if (!cleaned.length) return null;
+  return {
+    title: String(plan.title || '模组规划'),
+    summary: String(plan.summary || ''),
+    groups: cleaned,
+  };
+}
+
+/** 429/5xx 自动重试，避免一次限流就整段对话挂掉 */
+async function fetchChatWithRetry(url, init, cfg, emit) {
+  const max = Math.max(0, Number(cfg.apiRetries) || 4);
+  let attempt = 0;
+  let lastErr = null;
+
+  while (attempt <= max) {
+    if (init.signal?.aborted) throw new Error('已手动停止');
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      lastErr = e;
+      if (init.signal?.aborted || e?.name === 'AbortError') throw e;
+      if (attempt >= max) throw e;
+      const wait = Math.min(12000, 800 * 2 ** attempt) + Math.floor(Math.random() * 400);
+      emit?.({ k: 'status', text: `网络异常，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）` });
+      await sleep(wait);
+      attempt += 1;
+      continue;
+    }
+
+    if (res.status !== 429 && res.status < 500) return res;
+
+    const text = await res.text().catch(() => '');
+    lastErr = new Error(`API ${res.status}: ${text.slice(0, 200)}`);
+    if (attempt >= max) return res;
+
+    const ra = Number(res.headers.get('Retry-After'));
+    const wait = (ra > 0 ? ra * 1000 : Math.min(12000, 1000 * 2 ** attempt + Math.floor(Math.random() * 500)));
+    emit?.({
+      k: 'status',
+      text: res.status === 429
+        ? `上游限流，${Math.round(wait / 1000)}s 后自动重试（${attempt + 1}/${max}）`
+        : `上游 ${res.status}，${Math.round(wait / 1000)}s 后重试（${attempt + 1}/${max}）`,
+    });
+    await sleep(wait);
+    attempt += 1;
+  }
+  throw lastErr || new Error('上游请求失败');
+}
+
 export async function callChatStream(cfg, messages, tools, signal, emit) {
   const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
   if (!base) throw new Error('未配置 baseUrl');
@@ -599,7 +797,7 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
   const url = `${base}/chat/completions`;
   const body = buildChatBody(cfg, messages, tools);
 
-  const res = await fetch(url, {
+  const res = await fetchChatWithRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -607,11 +805,11 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
     },
     body: JSON.stringify(body),
     signal: withTimeoutSignal(signal, cfg.apiTimeoutSec),
-  });
+  }, cfg, emit);
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    if (res.status === 429) throw new Error('上游限流，请稍后再试');
+    if (res.status === 429) throw new Error('上游限流，已重试仍失败，请稍后再试');
     if (res.status === 401) throw new Error('API Key 无效或已过期');
     throw new Error(`API ${res.status}: ${text.slice(0, 400)}`);
   }
@@ -668,6 +866,53 @@ export async function callChatStream(cfg, messages, tools, signal, emit) {
     .map(([, v]) => ({ id: v.id, name: v.name || 'tool', args: v.args || '{}' }));
 
   return { content, toolCalls };
+}
+
+/**
+ * 自动提炼制作者事实记忆（Mem0 风格：多条 add-only facts）
+ * 失败静默，不打断主流程
+ */
+async function autoSummarizeMemory(chat, cfg, emit) {
+  try {
+    if (cfg.autoMemory === false) return;
+    const turns = (chat.messages || []).filter((m) => m.role === 'user' || m.role === 'assistant');
+    if (turns.length < 2) return;
+
+    const recent = turns.slice(-12).map((m) => {
+      const text = String(m.content || '').replace(/\s+/g, ' ').slice(0, 350);
+      return `${m.role === 'user' ? '用户' : '助手'}: ${text}`;
+    }).join('\n');
+
+    emit?.({ k: 'memory_status', text: '正在提炼制作记忆…' });
+
+    const raw = await callChatCompletionsOnce(cfg, [
+      {
+        role: 'system',
+        content: `你是记忆整理器。从对话里提炼「可复用、可检索」的制作者事实，只保留有把握的。
+只输出 JSON 数组，不要围栏：
+[
+  { "text": "一条事实，40字内", "kind": "project|pref|style|avoid|fact", "tags": ["可选标签"] }
+]
+kind 含义：
+- project：版本/加载器/包名/在做什么模组
+- pref：明确偏好（命名、目录、库）
+- style：代码/回复风格
+- avoid：明确不要做的事
+- fact：其它稳定事实
+最多 5 条；没有值得记的就输出 []。不要编造。`,
+      },
+      { role: 'user', content: recent },
+    ], { temperature: 0.2, maxTokens: 800 });
+
+    const items = parseFactsJson(raw);
+    if (!items.length) return;
+    const added = addFacts(items, 'auto');
+    if (added.length) {
+      emit?.({ k: 'memory_updated', count: added.length, added: added.map((f) => f.text) });
+    }
+  } catch {
+    /* 记忆失败不影响对话 */
+  }
 }
 
 const MAX_ROUNDS = 12;
@@ -774,6 +1019,8 @@ async function runAgent(chat, emit) {
     saveChat(chat);
     emit({ k: 'run_end' });
     emit({ k: 'files', files: await listProjectFiles(project), project });
+    // 收尾后再总结记忆；用 memory_status，前端不会再把界面打回「停止」
+    autoSummarizeMemory(chat, cfg, emit).catch(() => {});
   }
 }
 
@@ -881,6 +1128,128 @@ const server = http.createServer(async (req, res) => {
 
     if (p === '/api/health') {
       json(res, 200, { ok: true, workspace: WORKSPACE, version: LOCAL_VERSION });
+      return;
+    }
+
+    if (p === '/api/memory' && req.method === 'GET') {
+      const q = url.searchParams.get('q') || '';
+      const facts = q ? searchFacts(q, 20) : listFacts();
+      json(res, 200, { facts, total: listFacts().length });
+      return;
+    }
+
+    if (p === '/api/memory' && req.method === 'POST') {
+      const body = await readJson(req);
+      // 兼容旧表单：notes/likes/avoid → 三条 fact
+      if (body.notes !== undefined || body.likes !== undefined || body.avoid !== undefined) {
+        const out = [];
+        if (body.notes) out.push(addFact(body.notes, 'project', ['manual'], 'manual'));
+        if (body.likes) out.push(addFact(body.likes, 'style', ['manual'], 'manual'));
+        if (body.avoid) out.push(addFact(body.avoid, 'avoid', ['manual'], 'manual'));
+        json(res, 200, { facts: listFacts(), added: out.filter(Boolean).length });
+        return;
+      }
+      if (body.text) {
+        const f = addFact(body.text, body.kind || 'fact', body.tags || [], 'manual');
+        json(res, 200, { fact: f, facts: listFacts() });
+        return;
+      }
+      json(res, 400, { error: '缺少 text 或 notes/likes/avoid' });
+      return;
+    }
+
+    if (p.startsWith('/api/memory/') && req.method === 'DELETE') {
+      const id = path.basename(p);
+      const ok = deleteFact(id);
+      json(res, 200, { ok, facts: listFacts() });
+      return;
+    }
+
+    if (p === '/api/memory' && req.method === 'DELETE') {
+      clearFacts();
+      json(res, 200, { ok: true, facts: [] });
+      return;
+    }
+
+    /** AI 构建：把一句话拆成可选创意组 */
+    if (p === '/api/plan' && req.method === 'POST') {
+      const cfg = loadConfig();
+      const body = await readJson(req);
+      const idea = String(body.text || '').trim();
+      if (!idea) return json(res, 400, { error: 'text 为空' });
+      try {
+        const messages = [
+          {
+            role: 'system',
+            content: `你是 Minecraft 模组玩法策划。把用户想法拆成 3～5 个「决策组」，每组恰好 3 个可选方案。
+严格只输出一个 JSON 对象，不要 markdown，不要解释：
+{"title":"简短标题","summary":"一句话","groups":[{"id":"g1","title":"组名","desc":"定什么","options":[{"id":"o1","label":"方案名","detail":"20字内","recommended":true},{"id":"o2","label":"…","detail":"…"},{"id":"o3","label":"…","detail":"…"}]}]}
+用简体中文。方案具体可实现。label/detail 必须是字符串。`,
+          },
+          { role: 'user', content: `MC ${cfg.mcVersion} · ${cfg.loader || 'neoforge'} · ${idea}` },
+        ];
+
+        let plan = null;
+        let raw = '';
+        for (let attempt = 0; attempt < 3 && !plan; attempt += 1) {
+          raw = await callChatCompletionsOnce(cfg, messages, {
+            temperature: attempt === 0 ? 0.3 : 0.1,
+            maxTokens: 1600,
+            jsonMode: attempt > 0,
+            timeoutMs: 90000,
+          });
+          plan = normalizePlan(extractJsonObject(raw));
+        }
+        if (!plan) {
+          // 本地兜底：用原话组一个最小规划，保证流程不断
+          plan = {
+            title: idea.slice(0, 24) || '模组规划',
+            summary: idea,
+            groups: [
+              {
+                id: 'g1',
+                title: '核心玩法',
+                desc: '先定要做什么',
+                options: [
+                  { id: 'o1', label: '按原话实现', detail: idea.slice(0, 40), recommended: true },
+                  { id: 'o2', label: '简化版', detail: '只做最小可运行子集' },
+                  { id: 'o3', label: '增强版', detail: '补创造栏/语言/配方' },
+                ],
+              },
+            ],
+          };
+        }
+        json(res, 200, { original: idea, plan, rawPreview: raw.slice(0, 200) });
+      } catch (e) {
+        json(res, 502, { error: String(e.message || e) });
+      }
+      return;
+    }
+
+    /** 想法优化：把一句需求整理成更可执行的制作说明 */
+    if (p === '/api/refine' && req.method === 'POST') {
+      const cfg = loadConfig();
+      const body = await readJson(req);
+      const idea = String(body.text || '').trim();
+      if (!idea) return json(res, 400, { error: 'text 为空' });
+      try {
+        const result = await callChatCompletionsOnce(cfg, [
+          {
+            role: 'system',
+            content: `你是 Minecraft 模组需求整理助手。把用户一句话想法改成「可直接开工」的说明。
+只输出整理后的需求本身，不要开场白。要求：
+- 明确玩法/物品或方块行为
+- 明确触发方式（右键/左键/tick/合成等）
+- 有数值就写清数值（伤害、冷却、堆叠）
+- 补上常见遗漏（创造栏、语言文件、模型/贴图、配方）
+- 控制在 120 字以内，简体中文`,
+          },
+          { role: 'user', content: idea },
+        ]);
+        json(res, 200, { original: idea, refined: result || idea });
+      } catch (e) {
+        json(res, 502, { error: String(e.message || e), original: idea });
+      }
       return;
     }
 

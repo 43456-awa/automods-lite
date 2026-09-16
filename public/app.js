@@ -50,7 +50,265 @@
     viewBench: $("viewBench"),
     learnSide: $("learnSide"),
     benchSide: $("benchSide"),
+    thinkBox: $("thinkBox"),
+    thinkText: $("thinkText"),
+    thinkBody: $("thinkBody"),
+    ctxMeter: $("ctxMeter"),
+    ctxText: $("ctxText"),
+    ctxFill: $("ctxFill"),
+    ctxDetail: $("ctxDetail"),
+    loaderQuick: $("loaderQuick"),
+    mcQuick: $("mcQuick"),
+    memoryModal: $("memoryModal"),
+    planModal: $("planModal"),
+    planBody: $("planBody"),
+    planTitle: $("planTitle"),
+    planCount: $("planCount"),
+    planSwitch: $("planSwitch"),
+    planToggleHint: $("planToggleHint"),
   };
+
+  let thinkAcc = "";
+  let ctxUsage = 0;
+  let ctxDetailData = null;
+  let planState = { original: "", plan: null, picks: {} };
+  let pendingQueue = [];
+  let streamAbort = null;
+
+  function openPlanModal() {
+    if (els.planModal) {
+      els.planModal.hidden = false;
+      els.backdrop.hidden = false;
+    }
+  }
+  function closePlanModal() {
+    if (els.planModal) els.planModal.hidden = true;
+    if (window.NFHideBackdropIfIdle) window.NFHideBackdropIfIdle();
+  }
+
+  function renderPlan(plan, original) {
+    planState = { original, plan, picks: {} }; // picks[gid] = [ {oid,label,detail,...}, ... ]
+    if (els.planTitle) els.planTitle.textContent = plan.title || "模组规划";
+    const groups = plan.groups || [];
+
+    const allPicks = () => Object.values(planState.picks).flat().filter(Boolean);
+
+    function refreshCount() {
+      if (els.planCount) {
+        const n = allPicks().length;
+        els.planCount.textContent = n
+          ? `想法池 ${n} 条 · 同组可多选 · 卡片可改写`
+          : "点创意加入想法池；同组可多选，点标题/说明可改写";
+      }
+      const ul = document.getElementById("planPoolList");
+      if (ul) {
+        ul.textContent = "";
+        allPicks().forEach((p) => {
+          const li = document.createElement("li");
+          li.textContent = `${p.groupTitle} → ${p.label}${p.detail ? `：${p.detail}` : ""}`;
+          ul.appendChild(li);
+        });
+      }
+    }
+
+    function readCard(btn) {
+      const labelEl = btn.querySelector(".opt-label");
+      const detailEl = btn.querySelector(".opt-detail");
+      return {
+        oid: btn.dataset.oid,
+        groupTitle: btn.dataset.gtitle,
+        label: (labelEl?.textContent || btn.dataset.label || "").trim(),
+        detail: (detailEl?.textContent || btn.dataset.detail || "").trim(),
+      };
+    }
+
+    function syncCard(btn) {
+      const key = `${btn.dataset.gid}::${btn.dataset.oid}`;
+      const list = planState.picks[btn.dataset.gid] || [];
+      const idx = list.findIndex((x) => x.key === key);
+      if (idx >= 0) {
+        const card = readCard(btn);
+        list[idx] = { ...list[idx], ...card, key };
+        planState.picks[btn.dataset.gid] = list;
+        refreshCount();
+      }
+    }
+
+    const html = [];
+    html.push(`<div class="plan-pool"><b>想法池 · 可多选</b><ul id="planPoolList"></ul></div>`);
+    groups.forEach((g) => {
+      html.push(`<div class="plan-group" data-gid="${escapeHtml(g.id)}">
+        <h3>${escapeHtml(g.title || g.id)}</h3>
+        <p class="desc">${escapeHtml(g.desc || "")}</p>
+        <div class="plan-opts">`);
+      (g.options || []).forEach((o) => {
+        html.push(`<div class="plan-opt" role="button" tabindex="0"
+          data-gid="${escapeHtml(g.id)}"
+          data-oid="${escapeHtml(o.id)}"
+          data-label="${escapeHtml(o.label)}"
+          data-detail="${escapeHtml(o.detail || "")}"
+          data-gtitle="${escapeHtml(g.title || g.id)}">
+          ${o.recommended ? '<span class="tagrec">推荐</span>' : ""}
+          <b class="opt-label" contenteditable="true" spellcheck="false" title="点击可改写">${escapeHtml(o.label)}</b>
+          <small class="opt-detail" contenteditable="true" spellcheck="false" title="点击可改写">${escapeHtml(o.detail || "")}</small>
+          <span class="pick-hint">点一下加入 / 再点取消</span>
+        </div>`);
+      });
+      html.push(`<div class="plan-custom">
+        <small style="color:var(--muted);font-size:11px">自定义（可多条）</small>
+        <input type="text" data-gid="${escapeHtml(g.id)}" data-gtitle="${escapeHtml(g.title || g.id)}" placeholder="输入你的方案…" />
+        <button type="button" class="btn btn-ghost btn-sm plan-custom-add">加入</button>
+      </div>`);
+      html.push(`</div></div>`);
+    });
+
+    if (!els.planBody) {
+      openPlanModal();
+      return;
+    }
+    els.planBody.innerHTML = html.join("");
+
+    els.planBody.querySelectorAll(".plan-opt").forEach((btn) => {
+      const toggle = () => {
+        // 点在可编辑文字上时，不切换选中，方便改写
+        const gid = btn.dataset.gid;
+        const key = `${gid}::${btn.dataset.oid}`;
+        if (!planState.picks[gid]) planState.picks[gid] = [];
+        const list = planState.picks[gid];
+        const idx = list.findIndex((x) => x.key === key);
+        if (idx >= 0) {
+          list.splice(idx, 1);
+          btn.classList.remove("picked");
+          const h = btn.querySelector(".pick-hint");
+          if (h) h.textContent = "点一下加入 / 再点取消";
+        } else {
+          const card = readCard(btn);
+          list.push({ ...card, key });
+          btn.classList.add("picked");
+          const h = btn.querySelector(".pick-hint");
+          if (h) h.textContent = "已加入 · 再点取消";
+        }
+        refreshCount();
+      };
+
+      btn.addEventListener("click", (e) => {
+        if (e.target.closest("[contenteditable=true]")) return;
+        toggle();
+      });
+      btn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggle();
+        }
+      });
+
+      btn.querySelectorAll("[contenteditable=true]").forEach((el) => {
+        el.addEventListener("click", (e) => e.stopPropagation());
+        el.addEventListener("blur", () => syncCard(btn));
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            el.blur();
+          }
+        });
+      });
+    });
+
+    els.planBody.querySelectorAll(".plan-custom-add").forEach((btn) => {
+      btn.onclick = () => {
+        const box = btn.closest(".plan-custom");
+        const input = box?.querySelector("input");
+        const val = (input?.value || "").trim();
+        if (!val) {
+          toast("先写自定义方案");
+          return;
+        }
+        const gid = input.dataset.gid;
+        if (!planState.picks[gid]) planState.picks[gid] = [];
+        const key = `${gid}::custom_${Date.now()}`;
+        planState.picks[gid].push({
+          key,
+          oid: key,
+          groupTitle: input.dataset.gtitle,
+          label: val,
+          detail: "自定义",
+        });
+        input.value = "";
+        refreshCount();
+        toast("已加入想法池");
+      };
+    });
+
+    refreshCount();
+    openPlanModal();
+  }
+
+  function buildPromptFromPlan() {
+    const picks = allPicksFlat();
+    if (!picks.length) return planState.original;
+    // 按组合并
+    const byGroup = new Map();
+    picks.forEach((p) => {
+      if (!byGroup.has(p.groupTitle)) byGroup.set(p.groupTitle, []);
+      byGroup.get(p.groupTitle).push(p);
+    });
+    const lines = [];
+    byGroup.forEach((arr, g) => {
+      const items = arr.map((p) => `${p.label}${p.detail ? `（${p.detail}）` : ""}`).join("；");
+      lines.push(`- ${g}：${items}`);
+    });
+    return `${planState.original}
+
+已选定的实现方案（同组可多条，请全部按这些决策做）：
+${lines.join("\n")}
+
+请直接开始写代码落盘，不要再问选哪套。`;
+  }
+
+  function allPicksFlat() {
+    return Object.values(planState.picks || {}).flat().filter(Boolean);
+  }
+
+  async function startPlan(text) {
+    openPlanModal();
+    if (els.planTitle) els.planTitle.textContent = "模组规划";
+    if (els.planCount) els.planCount.textContent = "正在把你的想法拆成创意…";
+    if (els.planBody) {
+      els.planBody.innerHTML = '<div class="empty-state">正在生成创意，请稍候…（限流时会自动重试）</div>';
+    }
+    try {
+      const res = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      renderPlan(data.plan || {}, text);
+    } catch (e) {
+      const msg = e.message || "规划失败";
+      if (els.planBody) {
+        els.planBody.innerHTML = `
+          <div class="empty-state">
+            ${escapeHtml(msg)}
+            <div style="margin-top:12px;display:flex;gap:8px;justify-content:center">
+              <button type="button" class="btn btn-primary" id="btnPlanRetry">重试</button>
+              <button type="button" class="btn btn-ghost" id="btnPlanSkip">不规划，直接开工</button>
+            </div>
+          </div>`;
+        const retry = document.getElementById("btnPlanRetry");
+        if (retry) retry.onclick = () => startPlan(text);
+        const skip = document.getElementById("btnPlanSkip");
+        if (skip) {
+          skip.onclick = () => {
+            closePlanModal();
+            sendMessage(text);
+          };
+        }
+      }
+      toast(msg);
+    }
+  }
 
   function toast(msg) {
     if (window.NFToast) window.NFToast(msg);
@@ -147,12 +405,148 @@
   }
   window.NFSetMode = setMode;
 
+  function showThink(label) {
+    if (!els.thinkBox) return;
+    els.thinkBox.hidden = false;
+    if (els.thinkText) els.thinkText.textContent = label || "正在思考…";
+    if (els.thinkBody && !thinkAcc) els.thinkBody.hidden = true;
+  }
+
+  function appendThink(text) {
+    if (!els.thinkBox) return;
+    els.thinkBox.hidden = false;
+    thinkAcc += text || "";
+    if (els.thinkText) els.thinkText.textContent = "模型推理中…";
+    if (els.thinkBody) {
+      els.thinkBody.hidden = false;
+      els.thinkBody.textContent = thinkAcc.slice(-2000);
+    }
+  }
+
+  function hideThink() {
+    thinkAcc = "";
+    if (els.thinkBox) els.thinkBox.hidden = true;
+    if (els.thinkBody) {
+      els.thinkBody.hidden = true;
+      els.thinkBody.textContent = "";
+    }
+  }
+
+  function shortNum(n) {
+    if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+    return String(n);
+  }
+
+  function updateCtxMeter(extra) {
+    let chars = 0;
+    let userN = 0;
+    let asstN = 0;
+    let otherN = 0;
+    const samples = [];
+    try {
+      const nodes = [...els.conversation.querySelectorAll(".msg")];
+      nodes.forEach((n) => {
+        const t = n.textContent || "";
+        chars += t.length;
+        if (n.classList.contains("user")) userN += 1;
+        else if (n.classList.contains("assistant")) asstN += 1;
+        else otherN += 1;
+        samples.push({
+          role: n.classList.contains("user") ? "user" : n.classList.contains("assistant") ? "assistant" : "system",
+          len: t.length,
+          preview: t.slice(0, 40),
+        });
+      });
+    } catch { /* ignore */ }
+    if (extra) chars += String(extra).length;
+    ctxUsage = Math.round(chars / 3.2);
+    const f = els.settingsForm;
+    const hist = parseInt(f?.historyLimit?.value, 10) || 36;
+    const cap = Math.max(4000, hist * 400);
+    if (els.ctxText) els.ctxText.textContent = `上下文 ~${shortNum(ctxUsage)}`;
+    if (els.ctxFill) {
+      const share = Math.min(1, ctxUsage / cap);
+      els.ctxFill.style.width = `${(share * 100).toFixed(1)}%`;
+      els.ctxFill.classList.toggle("hot", share > 0.7);
+      els.ctxFill.classList.toggle("over", share > 0.92);
+    }
+    if (els.ctxMeter) {
+      els.ctxMeter.title = `点击看明细 · 约 ${ctxUsage} tokens`;
+    }
+    ctxDetailData = {
+      tokens: ctxUsage,
+      chars,
+      cap,
+      hist,
+      userN,
+      asstN,
+      otherN,
+      share: Math.min(1, ctxUsage / cap),
+      samples: samples.slice(-12).reverse(),
+    };
+  }
+
+  function openCtxDetail() {
+    if (!els.ctxDetail) return;
+    updateCtxMeter();
+    const d = ctxDetailData;
+    if (!d) return;
+    const pct = Math.round(d.share * 100);
+    els.ctxDetail.innerHTML = `
+      <div class="pop-head">
+        <b>上下文占用</b>
+        <button type="button" class="pop-close" id="btnCloseCtxPop" aria-label="关闭">×</button>
+      </div>
+      <div class="ctx-stats">
+        <div class="row"><span>估算 tokens</span><b>~${shortNum(d.tokens)}</b></div>
+        <div class="row"><span>字符数</span><b>${d.chars}</b></div>
+        <div class="row"><span>消息条数</span><b>用户 ${d.userN} · 助手 ${d.asstN}${d.otherN ? ` · 其他 ${d.otherN}` : ""}</b></div>
+        <div class="row"><span>历史档位</span><b>${d.hist} 条 · 预算约 ${shortNum(d.cap)}</b></div>
+        <div class="row"><span>占用比例</span><b>${pct}%</b></div>
+      </div>
+      <p class="hint-line" style="margin-top:6px">粗估（约 3.2 字符 ≈ 1 token），非上游精确计费。</p>
+      <div class="section-label" style="margin-top:8px">最近消息</div>
+      <ul class="ctx-break">
+        ${d.samples.map((s) => `<li>${s.role} · ${s.len}字 · ${escapeHtml(s.preview)}…</li>`).join("")}
+      </ul>
+    `;
+    els.ctxDetail.hidden = false;
+    const close = document.getElementById("btnCloseCtxPop");
+    if (close) close.onclick = (e) => { e.stopPropagation(); closeCtxDetail(); };
+  }
+
+  function closeCtxDetail() {
+    if (!els.ctxDetail) return;
+    els.ctxDetail.hidden = true;
+  }
+
+  function toggleCtxDetail(e) {
+    if (e) e.stopPropagation();
+    if (els.ctxDetail && !els.ctxDetail.hidden) closeCtxDetail();
+    else openCtxDetail();
+  }
+
   function setBusy(busy, label) {
     state.busy = busy;
     els.runFlag.textContent = label || (busy ? "制作中" : "空闲");
     els.runFlag.classList.toggle("busy", busy);
-    els.sendButton.disabled = busy;
-    els.sendButton.textContent = busy ? "制作中…" : "发送";
+    // 忙时：有字→插话；没字→停止
+    const hasText = Boolean(els.input.value.trim());
+    if (busy) {
+      els.sendButton.disabled = false;
+      els.sendButton.textContent = hasText ? "插话" : "停止";
+      els.sendButton.title = hasText ? "当前这轮做完后自动接上这条" : "停止这一轮";
+      els.sendButton.classList.toggle("stopping", !hasText);
+    } else {
+      els.sendButton.disabled = !hasText;
+      els.sendButton.textContent = "发送";
+      els.sendButton.title = "发送（Shift + 回车）";
+      els.sendButton.classList.remove("stopping");
+      if (pendingQueue.length) {
+        const next = pendingQueue.shift();
+        setTimeout(() => sendMessage(next), 300);
+      }
+    }
     els.workCard.hidden = !busy && !state.steps;
     els.workCard.classList.toggle("running", busy);
     const stopBtn = $("btnStop");
@@ -160,6 +554,33 @@
     if (!busy) {
       els.workTitle.textContent = state.steps ? "这一轮做完了" : "正在制作";
     }
+  }
+
+  async function stopCurrent() {
+    if (!state.chatId) return;
+    try {
+      await fetch("/api/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: state.chatId }),
+      });
+      if (streamAbort) {
+        streamAbort.abort();
+        streamAbort = null;
+      }
+      toast("已请求停止");
+    } catch {
+      toast("停止失败");
+    }
+  }
+
+  function dispatchText(text) {
+    if (!text) return;
+    if (els.planSwitch && els.planSwitch.checked && !state.busy) {
+      startPlan(text);
+      return;
+    }
+    sendMessage(text);
   }
 
   function ensureLiveBubble() {
@@ -219,6 +640,7 @@
     els.workCard.hidden = true;
     els.workCard.classList.remove("running");
     els.workTitle.textContent = "正在制作";
+    hideThink();
   }
 
   function addStep(label, brief, bad, id) {
@@ -381,6 +803,7 @@
       } else {
         els.hero.hidden = false;
       }
+      updateCtxMeter();
       refreshChats();
       loadFiles(false);
       closeDrawers();
@@ -421,20 +844,29 @@
         addMsg("user", data.text);
         break;
       case "status":
-        setBusy(true, data.text || "制作中");
-        els.workNow.textContent = data.text || "";
+        // 只更新文案；真正 busy 由 started/run_end 等控制，避免收尾后记忆总结把状态打回「停止」
+        if (state.busy) {
+          els.runFlag.textContent = data.text || "制作中";
+          els.workNow.textContent = data.text || "";
+          showThink(data.text || "正在思考…");
+        }
         break;
       case "think_delta":
-        // R1 等思考过程：只更新状态行，不进对话正文
-        setBusy(true, "思考中…");
-        els.workNow.textContent = ("思考中… " + (data.text || "")).slice(0, 48);
+        if (!state.busy) break;
+        els.runFlag.textContent = "思考中…";
+        appendThink(data.text || "");
+        els.workNow.textContent = "思考中…";
         break;
       case "say_delta":
+        hideThink();
         appendLive(data.text || "");
+        updateCtxMeter(data.text);
         break;
       case "say_settled":
       case "say":
+        hideThink();
         settleLive(data.text || "");
+        updateCtxMeter();
         break;
       case "say_settle_cancel":
         cancelLive();
@@ -459,11 +891,21 @@
         if (data.project) state.project = data.project;
         loadFiles(true);
         break;
+      case "memory_updated":
+        toast(`已记住 ${data.count || 1} 条`);
+        break;
+      case "memory_status":
+        // 收尾后的后台动作，只提示，不改 busy
+        els.draftHint.textContent = data.text || "";
+        break;
       case "run_end":
         if (state.liveBubble) cancelLive();
+        hideThink();
+        streamAbort = null;
         setBusy(false);
         loadFiles(true);
         refreshChats();
+        updateCtxMeter();
         break;
       default:
         break;
@@ -471,20 +913,26 @@
   }
 
   function sendMessage(text) {
+    if (!text) return;
     if (state.busy) {
-      toast("这一轮还在做，稍等");
+      pendingQueue.push(text);
+      addMsg("system", `已排队插话：${text.slice(0, 60)}${text.length > 60 ? "…" : ""}`);
+      toast("已排队，这一轮做完自动接上");
       return;
     }
     setBusy(true, "连接中…");
     resetWorkCard();
+    showThink("正在连接上游…");
     els.workCard.hidden = false;
     els.workCard.classList.add("running");
     els.filePreview.hidden = true;
 
+    streamAbort = new AbortController();
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, chatId: state.chatId }),
+      signal: streamAbort.signal,
     }).then(async (res) => {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -506,9 +954,16 @@
         }
       }
       if (state.liveBubble) cancelLive();
+      streamAbort = null;
       setBusy(false);
       loadFiles(true);
     }).catch((e) => {
+      streamAbort = null;
+      if (e?.name === "AbortError") {
+        if (state.liveBubble) cancelLive();
+        setBusy(false);
+        return;
+      }
       if (state.liveBubble) cancelLive();
       addMsg("system", e.message || String(e));
       els.conversation.lastChild?.classList.add("err");
@@ -545,6 +1000,20 @@
       f.modId.value = cfg.modId || "";
       f.mcVersion.value = cfg.mcVersion || "";
       f.workspaceName.value = cfg.workspaceName || "";
+      if (f.loader) f.loader.value = cfg.loader || "neoforge";
+      if (f.apiRetries) f.apiRetries.value = cfg.apiRetries ?? 4;
+      if (f.autoMemory) f.autoMemory.checked = cfg.autoMemory !== false;
+      if (els.loaderQuick) els.loaderQuick.value = cfg.loader || "neoforge";
+      if (els.mcQuick && cfg.mcVersion) {
+        const exists = [...els.mcQuick.options].some((o) => o.value === cfg.mcVersion);
+        if (!exists) {
+          const opt = document.createElement("option");
+          opt.value = cfg.mcVersion;
+          opt.textContent = cfg.mcVersion;
+          els.mcQuick.appendChild(opt);
+        }
+        els.mcQuick.value = cfg.mcVersion;
+      }
       if (f.gradleCmd) f.gradleCmd.value = cfg.gradleCmd || "";
       if (f.updateRepo) f.updateRepo.value = cfg.updateRepo || "";
       if (f.gradleTimeoutSec) f.gradleTimeoutSec.value = cfg.gradleTimeoutSec || 180;
@@ -604,24 +1073,213 @@
     };
     $("btnSettings2").onclick = () => $("btnSettings").click();
 
+    // 顶栏快捷：加载器 / MC 版本 — 改完立刻写进配置
+    async function saveQuick(payload, okMsg) {
+      try {
+        const res = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error("fail");
+        toast(okMsg || "已保存");
+      } catch {
+        toast("保存失败");
+      }
+    }
+    if (els.loaderQuick) {
+      els.loaderQuick.onchange = () => {
+        saveQuick({ loader: els.loaderQuick.value }, `加载器：${els.loaderQuick.value}`);
+      };
+    }
+    if (els.mcQuick) {
+      els.mcQuick.onchange = () => {
+        saveQuick({ mcVersion: els.mcQuick.value }, `版本：${els.mcQuick.value}`);
+      };
+    }
+
+    // 优化想法
+    const btnRefine = $("btnRefine");
+    if (btnRefine) {
+      btnRefine.onclick = async () => {
+        const text = els.input.value.trim();
+        if (!text) {
+          toast("先写一句想法");
+          return;
+        }
+        btnRefine.disabled = true;
+        btnRefine.textContent = "优化中…";
+        try {
+          const res = await fetch("/api/refine", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          const refined = (data.refined || "").trim();
+          if (refined) {
+            els.input.value = refined;
+            growInput();
+            toast("已整理成可开工需求，可再改");
+          }
+        } catch (e) {
+          toast(e.message || "优化失败");
+        } finally {
+          btnRefine.disabled = false;
+          btnRefine.textContent = "优化想法";
+        }
+      };
+    }
+
+    if (els.ctxMeter) {
+      els.ctxMeter.onclick = toggleCtxDetail;
+      els.ctxMeter.style.cursor = "pointer";
+    }
+    // 点外面关小面板
+    document.addEventListener("click", (e) => {
+      if (!els.ctxDetail || els.ctxDetail.hidden) return;
+      if (e.target.closest(".ctx-wrap")) return;
+      closeCtxDetail();
+    });
+
+    // 记忆（事实列表）
+    const memList = $("memList");
+    const memText = $("memText");
+    const memKind = $("memKind");
+    const memSearch = $("memSearch");
+
+    const renderMemList = (facts) => {
+      if (!memList) return;
+      if (!facts || !facts.length) {
+        memList.innerHTML = '<div class="empty-state">暂无记忆。可手动添加，或开着自动总结做完一轮对话。</div>';
+        return;
+      }
+      memList.textContent = "";
+      facts.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "mem-item";
+        const kind = document.createElement("span");
+        kind.className = `kind ${f.kind || "fact"}`;
+        kind.textContent = f.kind || "fact";
+        const mid = document.createElement("div");
+        const text = document.createElement("div");
+        text.className = "text";
+        text.textContent = f.text || "";
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const d = new Date(f.createdAt || Date.now());
+        meta.textContent = `${(f.tags || []).join(" · ") || "—"} · ${d.toLocaleString()} · ${f.source || ""}`;
+        mid.appendChild(text);
+        mid.appendChild(meta);
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "del";
+        del.textContent = "×";
+        del.title = "删除这条记忆";
+        del.onclick = async () => {
+          try {
+            const res = await fetch(`/api/memory/${encodeURIComponent(f.id)}`, { method: "DELETE" });
+            const data = await res.json();
+            renderMemList(data.facts || []);
+            toast("已删除");
+          } catch {
+            toast("删除失败");
+          }
+        };
+        row.appendChild(kind);
+        row.appendChild(mid);
+        row.appendChild(del);
+        memList.appendChild(row);
+      });
+    };
+
+    const loadMem = async (q) => {
+      try {
+        const url = q ? `/api/memory?q=${encodeURIComponent(q)}` : "/api/memory";
+        const res = await fetch(url);
+        const data = await res.json();
+        renderMemList(data.facts || []);
+      } catch {
+        toast("读取记忆失败");
+      }
+    };
+
+    const openMemory = async () => {
+      if (!els.memoryModal) return;
+      await loadMem(memSearch?.value?.trim() || "");
+      els.memoryModal.hidden = false;
+      els.backdrop.hidden = false;
+    };
+    const closeMemory = () => {
+      if (!els.memoryModal) return;
+      els.memoryModal.hidden = true;
+      if (window.NFHideBackdropIfIdle) window.NFHideBackdropIfIdle();
+    };
+    const btnMemory = $("btnMemory");
+    if (btnMemory) btnMemory.onclick = openMemory;
+    $("btnCloseMemory") && ($("btnCloseMemory").onclick = closeMemory);
+    $("btnCancelMemory") && ($("btnCancelMemory").onclick = closeMemory);
+
+    const btnMemAdd = $("btnMemAdd");
+    if (btnMemAdd) {
+      btnMemAdd.onclick = async () => {
+        const text = (memText?.value || "").trim();
+        if (!text) {
+          toast("先写要记住的内容");
+          return;
+        }
+        try {
+          const res = await fetch("/api/memory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, kind: memKind?.value || "fact", tags: ["manual"] }),
+          });
+          if (!res.ok) throw new Error("fail");
+          const data = await res.json();
+          if (memText) memText.value = "";
+          renderMemList(data.facts || []);
+          toast("已添加");
+        } catch {
+          toast("添加失败");
+        }
+      };
+    }
+    $("btnMemRefresh") && ($("btnMemRefresh").onclick = () => loadMem(memSearch?.value?.trim() || ""));
+    $("btnMemClear") && ($("btnMemClear").onclick = async () => {
+      if (!confirm("清空全部记忆？")) return;
+      try {
+        await fetch("/api/memory", { method: "DELETE" });
+        renderMemList([]);
+        toast("已清空");
+      } catch {
+        toast("清空失败");
+      }
+    });
+    if (memSearch) {
+      let t = null;
+      memSearch.addEventListener("input", () => {
+        clearTimeout(t);
+        t = setTimeout(() => loadMem(memSearch.value.trim()), 250);
+      });
+    }
+
     const btnModels = $("btnFetchModels");
-    const modelList = $("modelList");
-    if (btnModels && modelList) {
+    if (btnModels) {
       btnModels.onclick = async () => {
+        if (btnModels.disabled) return;
         const f = els.settingsForm;
         const baseUrl = f.baseUrl.value.trim();
         const apiKey = f.apiKey.value.trim();
+        const prev = btnModels.textContent;
         btnModels.disabled = true;
         btnModels.textContent = "获取中…";
-        modelList.hidden = false;
-        modelList.innerHTML = '<div class="empty">正在请求上游 /models…</div>';
         try {
           const res = await fetch("/api/models", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               baseUrl,
-              // 表单里新填的 Key 优先；否则用已保存的
               ...(apiKey ? { apiKey } : {}),
               model: f.model.value.trim(),
             }),
@@ -629,28 +1287,38 @@
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
           const models = data.models || [];
+          const dl = document.getElementById("modelPresets");
+          if (!dl) throw new Error("找不到下拉列表");
           if (!models.length) {
-            modelList.innerHTML = '<div class="empty">上游没有返回模型列表</div>';
+            toast("上游没有返回模型");
             return;
           }
-          modelList.textContent = "";
-          for (const id of models) {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.textContent = id;
-            b.title = `填入 ${id}`;
-            b.onclick = () => {
-              f.model.value = id;
-              toast(`已选择 ${id}`);
-            };
-            modelList.appendChild(b);
-          }
-          toast(`共 ${models.length} 个模型`);
+          // 保留内置几条，再合并上游列表
+          const keep = ["deepseek-chat", "deepseek-reasoner"];
+          dl.textContent = "";
+          models.forEach((id) => {
+            const opt = document.createElement("option");
+            opt.value = id;
+            dl.appendChild(opt);
+          });
+          keep.forEach((id) => {
+            if (!models.includes(id)) {
+              const opt = document.createElement("option");
+              opt.value = id;
+              dl.appendChild(opt);
+            }
+          });
+          // 让浏览器刷新 datalist
+          const cur = f.model.value;
+          f.model.value = "";
+          f.model.value = cur;
+          f.model.focus();
+          toast(`已加载 ${models.length} 个模型 · 点右侧倒三角选择`);
         } catch (e) {
-          modelList.innerHTML = `<div class="empty">${escapeHtml(e.message || String(e))}</div>`;
+          toast(e.message || "获取列表失败");
         } finally {
           btnModels.disabled = false;
-          btnModels.textContent = "获取列表";
+          btnModels.textContent = prev || "获取列表";
         }
       };
     }
@@ -710,22 +1378,7 @@
 
     const stopBtn = $("btnStop");
     if (stopBtn) {
-      stopBtn.onclick = async () => {
-        if (!state.chatId) return;
-        stopBtn.disabled = true;
-        try {
-          await fetch("/api/stop", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chatId: state.chatId }),
-          });
-          toast("已请求停止");
-        } catch {
-          toast("停止失败");
-        } finally {
-          stopBtn.disabled = false;
-        }
-      };
+      stopBtn.onclick = () => stopCurrent();
     }
 
     $("btnClearHistory").onclick = async () => {
@@ -767,21 +1420,59 @@
         checker.classList.remove("is-open");
         checker.setAttribute("aria-hidden", "true");
       }
+      const mem = $("memoryModal");
+      if (mem && !mem.hidden) mem.hidden = true;
+      const pm = $("planModal");
+      if (pm && !pm.hidden) pm.hidden = true;
       if (window.NFHideBackdropIfIdle) window.NFHideBackdropIfIdle();
     };
 
     els.composer.onsubmit = (e) => {
       e.preventDefault();
       const text = els.input.value.trim();
+      // 忙且没字 → 当停止键用
+      if (state.busy && !text) {
+        stopCurrent();
+        return;
+      }
       if (!text) return;
       els.input.value = "";
       growInput();
-      sendMessage(text);
+      dispatchText(text);
     };
+
+    if (els.planSwitch) {
+      els.planSwitch.onchange = () => {
+        if (els.planToggleHint) {
+          els.planToggleHint.textContent = els.planSwitch.checked
+            ? "打开 · 先拆创意再开工"
+            : "关闭 · 原话直接制作";
+        }
+      };
+    }
+    $("btnClosePlan") && ($("btnClosePlan").onclick = closePlanModal);
+    $("btnCancelPlan") && ($("btnCancelPlan").onclick = closePlanModal);
+    $("btnPlanSendRaw") && ($("btnPlanSendRaw").onclick = () => {
+      const raw = planState.original;
+      closePlanModal();
+      if (raw) sendMessage(raw);
+    });
+    $("btnPlanBuild") && ($("btnPlanBuild").onclick = () => {
+      const prompt = buildPromptFromPlan();
+      closePlanModal();
+      if (prompt) sendMessage(prompt);
+    });
 
     els.input.addEventListener("input", () => {
       growInput();
       els.draftHint.textContent = els.input.value ? `${els.input.value.length} 字` : "";
+      if (state.busy) {
+        const has = Boolean(els.input.value.trim());
+        els.sendButton.textContent = has ? "插话" : "停止";
+        els.sendButton.classList.toggle("stopping", !has);
+      } else {
+        els.sendButton.disabled = !els.input.value.trim();
+      }
     });
 
     els.input.addEventListener("keydown", (e) => {
@@ -794,7 +1485,7 @@
     document.querySelectorAll(".starters button").forEach((btn) => {
       btn.onclick = () => {
         const text = btn.getAttribute("data-ask");
-        if (text) sendMessage(text);
+        if (text) dispatchText(text);
       };
     });
 
@@ -808,6 +1499,12 @@
         mcVersion: f.mcVersion.value.trim(),
         workspaceName: f.workspaceName.value.trim(),
       };
+      if (f.loader) payload.loader = f.loader.value || "neoforge";
+      if (f.apiRetries) {
+        const r = parseInt(f.apiRetries.value, 10);
+        if (r >= 0) payload.apiRetries = r;
+      }
+      if (f.autoMemory) payload.autoMemory = Boolean(f.autoMemory.checked);
       if (f.temperature) {
         const t = Number(f.temperature.value);
         if (Number.isFinite(t)) payload.temperature = t;

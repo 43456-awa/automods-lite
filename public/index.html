@@ -96,6 +96,15 @@
               </div>
             </div>
             <div class="conversation" id="conversation"></div>
+            <div class="think-box" id="thinkBox" hidden>
+              <header>
+                <i class="think-dot"></i>
+                <b>正在思考中</b>
+                <span class="grow"></span>
+                <small id="thinkText">连接上游…</small>
+              </header>
+              <pre id="thinkBody" hidden></pre>
+            </div>
             <div class="dock">
               <div class="work-card" id="workCard" hidden>
                 <header>
@@ -109,10 +118,37 @@
                 <ul class="steps" id="workSteps"></ul>
               </div>
               <form class="composer" id="composer">
+                <div class="composer-toolbar">
+                  <label class="ai-toggle" id="planToggle" title="打开后先拆创意，选完再开工">
+                    <input type="checkbox" id="planSwitch" />
+                    <span class="switch"><i></i></span>
+                    <span class="ai-toggle-copy"><b>AI 构建</b><small id="planToggleHint">关闭 · 原话直接制作</small></span>
+                  </label>
+                  <select id="loaderQuick" title="加载器">
+                    <option value="neoforge">NeoForge</option>
+                    <option value="forge">Forge</option>
+                  </select>
+                  <select id="mcQuick" title="Minecraft 版本">
+                    <option value="1.21.1">1.21.1</option>
+                    <option value="1.21">1.21</option>
+                    <option value="1.20.1">1.20.1</option>
+                    <option value="1.19.2">1.19.2</option>
+                  </select>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btnRefine" title="把想法整理成可开工的需求">优化想法</button>
+                  <span class="grow"></span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btnMemory" title="让助手记住你的偏好">记忆</button>
+                </div>
                 <textarea id="input" rows="1" placeholder="例如：给模组加一个魔法南瓜灯"></textarea>
                 <div class="composer-bottom">
                   <small class="hint" id="draftHint"></small>
                   <span class="grow"></span>
+                  <span class="ctx-wrap">
+                    <span class="ctx-meter" id="ctxMeter" title="点击查看明细">
+                      <b id="ctxText">上下文 0</b>
+                      <i class="ctx-bar"><em id="ctxFill"></em></i>
+                    </span>
+                    <div class="ctx-pop" id="ctxDetail" hidden></div>
+                  </span>
                   <button type="submit" class="btn btn-primary" id="sendButton">发送</button>
                 </div>
               </form>
@@ -168,6 +204,66 @@
     </section>
   </div>
 
+  <!-- AI 构建规划 -->
+  <div class="modal plan-modal" id="planModal" hidden>
+    <section class="plan-section">
+      <header>
+        <div>
+          <small>AI 极速规划</small>
+          <h2 id="planTitle">模组规划</h2>
+          <p id="planCount" class="hint-line">点卡片加入想法池，再确定构建</p>
+        </div>
+        <button type="button" class="btn btn-icon-only" id="btnClosePlan">×</button>
+      </header>
+      <div class="form-scroll" id="planBody">
+        <div class="empty-state">正在生成创意…</div>
+      </div>
+      <footer>
+        <button type="button" class="btn btn-ghost" id="btnCancelPlan">取消</button>
+        <button type="button" class="btn btn-ghost" id="btnPlanSendRaw">不选了，原话开工</button>
+        <button type="button" class="btn btn-primary" id="btnPlanBuild">确定构建</button>
+      </footer>
+    </section>
+  </div>
+
+  <!-- 记忆 -->
+  <div class="modal" id="memoryModal" hidden>
+    <section class="plan-section">
+      <header>
+        <div>
+          <small>事实记忆 · 可检索</small>
+          <h2>制作记忆</h2>
+          <p class="hint-line">自动从对话提炼，也可手动添加；注入时按本轮话题检索</p>
+        </div>
+        <button type="button" class="btn btn-icon-only" id="btnCloseMemory">×</button>
+      </header>
+      <div class="form-scroll">
+        <div class="mem-add">
+          <select id="memKind">
+            <option value="fact">事实</option>
+            <option value="project">项目</option>
+            <option value="pref">偏好</option>
+            <option value="style">风格</option>
+            <option value="avoid">避免</option>
+          </select>
+          <input id="memText" type="text" placeholder="例如：始终用 NeoForge 1.21.1，包名 com.example.studymod" />
+          <button type="button" class="btn btn-primary btn-sm" id="btnMemAdd">添加</button>
+        </div>
+        <div class="mem-tools">
+          <input id="memSearch" type="search" placeholder="搜索记忆…" />
+          <button type="button" class="btn btn-ghost btn-sm" id="btnMemRefresh">刷新</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnMemClear">清空</button>
+        </div>
+        <div class="mem-list" id="memList">
+          <div class="empty-state">暂无记忆</div>
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="btn btn-primary" id="btnCancelMemory">关闭</button>
+      </footer>
+    </section>
+  </div>
+
   <!-- 设置 -->
   <div class="modal" id="settingsModal" hidden>
     <section>
@@ -197,8 +293,7 @@
             <option value="qwen-plus">通义千问</option>
             <option value="glm-4-flash">智谱 GLM</option>
           </datalist>
-          <div class="model-list" id="modelList" hidden></div>
-          <small class="hint-line">「获取列表」会请求你配置的上游 <code>/models</code>，点名称即填入。</small>
+          <small class="hint-line">「获取列表」填充下拉；点输入框右侧倒三角选择。</small>
         </label>
         <div class="grid2">
           <label>推理强度
@@ -252,19 +347,40 @@
               <input name="historyLimit" type="number" min="8" max="400" placeholder="36" />
             </label>
           </div>
-          <label>上游超时（秒）
-            <input name="apiTimeoutSec" type="number" min="15" max="600" placeholder="180" />
+          <div class="grid2">
+            <label>上游超时（秒）
+              <input name="apiTimeoutSec" type="number" min="15" max="600" placeholder="180" />
+            </label>
+            <label>限流重试次数
+              <input name="apiRetries" type="number" min="0" max="8" placeholder="4" />
+            </label>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" name="autoMemory" checked />
+            <span>对话结束后自动总结制作记忆（写入 memory.json）</span>
           </label>
         </details>
 
         <div class="grid2">
-          <label>modId
-            <input name="modId" placeholder="mymod" autocomplete="off" />
+          <label>加载器
+            <select name="loader">
+              <option value="neoforge">NeoForge</option>
+              <option value="forge">Forge</option>
+            </select>
           </label>
           <label>Minecraft
-            <input name="mcVersion" placeholder="1.21.1" autocomplete="off" />
+            <input name="mcVersion" placeholder="1.21.1" autocomplete="off" list="mcPresets" />
+            <datalist id="mcPresets">
+              <option value="1.21.1"></option>
+              <option value="1.21"></option>
+              <option value="1.20.1"></option>
+              <option value="1.19.2"></option>
+            </datalist>
           </label>
         </div>
+        <label>modId
+          <input name="modId" placeholder="mymod" autocomplete="off" />
+        </label>
         <label>工程名
           <input name="workspaceName" placeholder="MyNeoForgeMod" autocomplete="off" />
         </label>
