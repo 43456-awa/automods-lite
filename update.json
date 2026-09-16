@@ -1,5 +1,5 @@
 {
-  "version": "0.3.10",
-  "notes": "Fix in-app updater missing memory.mjs / all root .mjs files",
+  "version": "0.3.11",
+  "notes": "Add update.bat to repair missing files from GitHub",
   "minNode": 18
 }
