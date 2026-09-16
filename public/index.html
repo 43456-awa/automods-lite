@@ -189,7 +189,7 @@
                     </svg>
                   </button>
 
-                  <label class="ai-build-toggle" id="planToggle" hidden
+                  <label class="ai-build-toggle" id="planToggle"
                          title="打开后先把你这句话拆成一组创意，挑完再选版本开工">
                     <input type="checkbox" id="planSwitch" />
                     <span class="ai-build-switch"><i></i></span>
@@ -396,6 +396,26 @@
         <button id="settingsCheck" type="button">检查更新</button>
         <button class="primary" id="settingsSave" type="button">保存</button>
       </footer>
+    </section>
+  </div>
+
+  <!-- 上下文用量详情：主站那张按类拆分的弹窗 -->
+  <div class="modal usage-dialog" id="usageDialog" role="dialog" aria-modal="true"
+       aria-labelledby="usageDialogTitle" hidden>
+    <section>
+      <header class="usage-dialog-head">
+        <h2 id="usageDialogTitle">上下文用量</h2>
+        <button class="usage-close" id="usageDialogClose" type="button" aria-label="关闭">×</button>
+      </header>
+      <div class="usage-summary">
+        <div class="usage-pct">
+          <b id="usagePct">0%</b>
+          <span id="usageUsed">已使用 0 / 0</span>
+        </div>
+        <div class="usage-bar" id="usageBar"></div>
+      </div>
+      <div class="usage-cats" id="usageCats"></div>
+      <small class="usage-note">估算：中文 1 字 ≈ 1 token，英文 1 字 ≈ 0.25 token（按字符 / 2 折算）。</small>
     </section>
   </div>
 

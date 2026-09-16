@@ -624,6 +624,7 @@ function listChats() {
             busy: Boolean(c.busy),
             project: c.project || 'default',
             messageCount: (c.messages || []).length,
+            archived: Boolean(c.archived),
           };
         } catch {
           return null;
@@ -730,6 +731,58 @@ function toPascal(id) {
   return String(id).split(/[_-]/).filter(Boolean)
     .map((s) => s[0].toUpperCase() + s.slice(1))
     .join('');
+}
+
+/** 上下文用量分类：中文 1 字约 1 token，英文 1 字约 0.25 token；
+ * 粗估统一按字符/2 算 token，分到 4 类让前端照主站那张饼图 */
+function buildContextReport(chat, cfg) {
+  const limit = Math.max(1024, Number(cfg.maxTokens) || 32768);
+  const sysText = systemPrompt(cfg, chat.project || 'default', '');
+  let sysTokens = 0;
+  if (typeof sysText === 'string') sysTokens = Math.ceil(sysText.length / 2);
+  else if (sysText && sysText.content) sysTokens = Math.ceil(sysText.content.length / 2);
+
+  let msgTokens = 0;
+  let toolTokens = 0;
+  (chat.messages || []).forEach((m) => {
+    const content = String(m.content || '');
+    if (m.role === 'user' || m.role === 'assistant') {
+      msgTokens += Math.ceil(content.length / 2);
+      if (m.tool_calls && m.tool_calls.length) {
+        m.tool_calls.forEach((tc) => {
+          const args = tc.args || tc.arguments || '{}';
+          toolTokens += Math.ceil(String(args).length / 2);
+        });
+      }
+    } else if (m.role === 'tool') {
+      toolTokens += Math.ceil(content.length / 2);
+    }
+  });
+
+  // 技能 / MCP 这两类本地版暂无任何调用，固定 0 但保留分类让前端画栏
+  const skillTokens = 0;
+  const mcpTokens = 0;
+
+  const used = sysTokens + msgTokens + toolTokens + skillTokens + mcpTokens;
+  const pct = (used / limit) * 100;
+  const cat = (used, name, color) => ({
+    name,
+    color,
+    used,
+    pct: Math.round((used / limit) * 1000) / 10,
+  });
+  return {
+    limit,
+    used,
+    pct: Math.round(pct * 10) / 10,
+    categories: [
+      cat(sysTokens, '系统提示词', 'blue'),
+      cat(toolTokens, '工具及子智能体', 'green'),
+      cat(msgTokens, '对话消息', 'orange'),
+      cat(mcpTokens, '连接器及MCP', 'purple'),
+      cat(skillTokens, '技能', 'pink'),
+    ],
+  };
 }
 
 function systemPrompt(cfg, project, userQuery) {
@@ -1861,6 +1914,7 @@ function newChat(title) {
     busy: false,
     project: `p_${id.slice(0, 8)}`,
     messages: [],
+    archived: false,
   };
 }
 
@@ -1909,6 +1963,16 @@ const server = http.createServer(async (req, res) => {
     /** 本机用量：顶栏那颗「积分」在本地版显示的就是这个 */
     if (p === '/api/usage' && req.method === 'GET') {
       json(res, 200, loadUsage());
+      return;
+    }
+
+    /** 上下文用量详情：弹窗里那张按类拆分 */
+    if (p === '/api/context' && req.method === 'GET') {
+      const chatId = url.searchParams.get('chatId');
+      if (!chatId) return json(res, 400, { error: '缺 chatId' });
+      const chat = loadChat(chatId);
+      if (!chat) return json(res, 404, { error: 'chat not found' });
+      json(res, 200, buildContextReport(chat, loadConfig()));
       return;
     }
 
@@ -2175,6 +2239,20 @@ const server = http.createServer(async (req, res) => {
       chat.updatedAt = Date.now();
       saveChat(chat);
       json(res, 200, { ok: true, chat: { id: chat.id, title: chat.title } });
+      return;
+    }
+
+    // 归档 / 恢复
+    if (p.match(/^\/api\/chats\/[^/]+\/archive$/) && req.method === 'POST') {
+      const id = p.split('/')[3];
+      const chat = loadChat(id);
+      if (!chat) return json(res, 404, { error: 'not found' });
+      const body = await readJson(req);
+      const archived = Boolean(body.archived);
+      chat.archived = archived;
+      chat.updatedAt = Date.now();
+      saveChat(chat);
+      json(res, 200, { ok: true, archived: chat.archived });
       return;
     }
 

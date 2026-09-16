@@ -203,7 +203,13 @@
     if (seen || skip || wantChat) {
       if (skip || wantChat) store.set('entered', true);
       enterApp(false);
-      if (wantChat) selectChat(wantChat).catch(() => toast('这个项目打不开', 'bad'));
+      if (wantChat) {
+        selectChat(wantChat).then(() => {
+          if (location.search.includes('usage=1')) openUsageDetail();
+        }).catch(() => toast('这个项目打不开', 'bad'));
+      } else if (location.search.includes('usage=1')) {
+        setTimeout(() => openUsageDetail(), 600);
+      }
     } else {
       $('loginView').hidden = false;
     }
@@ -271,36 +277,101 @@
   function renderChats() {
     const host = $('projectList');
     host.textContent = '';
-    $('projectEmpty').hidden = state.chats.length > 0;
-    state.chats.forEach((chat) => {
-      const item = make('button', `project-item${chat.id === state.chatId ? ' active' : ''}`);
-      item.type = 'button';
-      item.appendChild(make('b', null, chat.title || '未命名模组'));
-      item.appendChild(make('small', null, ago(chat.updatedAt)));
-      item.onclick = () => selectChat(chat.id);
+    const chats = state.chats;
+    const active = chats.filter((c) => !c.archived);
+    const archived = chats.filter((c) => c.archived);
+    $('projectEmpty').hidden = active.length > 0;
 
-      const del = make('button', 'project-del', '×');
-      del.type = 'button';
-      del.title = '删除这个项目';
-      del.onclick = async (event) => {
-        event.stopPropagation();
-        if (!window.confirm(`删除「${chat.title}」？它的工程目录会一起删掉。`)) return;
-        try {
-          await api(`/api/chats/${chat.id}?purge=1`, { method: 'DELETE' });
-          if (state.chatId === chat.id) {
-            state.chatId = '';
-            state.project = '';
-            newDraft();
-          }
-          await loadChats();
-          toast('已删除', 'good');
-        } catch (e) {
-          toast(e.message || '删不掉', 'bad');
-        }
+    if (active.length > 0) {
+      host.appendChild(make('h3', 'project-section', `进行中 · ${active.length}`));
+      active.forEach((chat) => host.appendChild(makeProjectItem(chat)));
+    }
+    if (archived.length > 0) {
+      const head = make('h3', 'project-section collapsed', `已归档 · ${archived.length}`);
+      head.style.cursor = 'pointer';
+      const list = make('div', 'archived-list');
+      list.style.display = 'none';
+      head.onclick = () => {
+        const hidden = list.style.display === 'none';
+        list.style.display = hidden ? '' : 'none';
+        head.classList.toggle('collapsed', !hidden);
       };
-      item.appendChild(del);
-      host.appendChild(item);
-    });
+      archived.forEach((chat) => list.appendChild(makeProjectItem(chat, true)));
+      host.appendChild(head);
+      host.appendChild(list);
+    }
+  }
+
+  function makeProjectItem(chat, archived) {
+    const item = make('button', `project-item${chat.id === state.chatId ? ' active' : ''}${archived ? ' archived' : ''}`);
+    item.type = 'button';
+    item.appendChild(make('b', null, chat.title || '未命名模组'));
+    item.appendChild(make('small', null, archived ? '已归档 · ' + ago(chat.updatedAt) : ago(chat.updatedAt)));
+    item.onclick = () => selectChat(chat.id);
+
+    // 重命名按钮
+    const rename = make('button', 'project-action', '✎');
+    rename.type = 'button';
+    rename.title = '改个名字';
+    rename.onclick = (event) => {
+      event.stopPropagation();
+      const next = window.prompt('改个名字', chat.title || '');
+      if (next == null) return;
+      const name = String(next).trim();
+      if (!name) return;
+      api(`/api/chats/${chat.id}/rename`, {
+        method: 'POST', body: JSON.stringify({ title: name }),
+      }).then(() => {
+        if (chat.id === state.chatId) {
+          state.title = name;
+          $('pageTitle').textContent = name;
+        }
+        return loadChats();
+      }).then(() => toast('改好了了', 'good')).catch((e) => toast(e.message || '没改成', 'bad'));
+    };
+    item.appendChild(rename);
+
+    // 归档 / 恢复
+    const archBtn = make('button', 'project-action', archived ? '↩' : '⏏');
+    archBtn.type = 'button';
+    archBtn.title = archived ? '恢复' : '归档（侧栏里还是能找到）';
+    archBtn.onclick = async (event) => {
+      event.stopPropagation();
+      try {
+        await api(`/api/chats/${chat.id}/archive`, {
+          method: 'POST', body: JSON.stringify({ archived: !archived }),
+        });
+        await loadChats();
+        toast(archived ? '已恢复' : '已归档', 'good');
+      } catch (e) {
+        toast(e.message || '改不动', 'bad');
+      }
+    };
+    item.appendChild(archBtn);
+
+    // 删除
+    const del = make('button', 'project-del', '×');
+    del.type = 'button';
+    del.title = '删除这个项目';
+    del.onclick = async (event) => {
+      event.stopPropagation();
+      if (!window.confirm(`删除「${chat.title}」？它的工程目录会一起删掉。`)) return;
+      try {
+        await api(`/api/chats/${chat.id}?purge=1`, { method: 'DELETE' });
+        if (state.chatId === chat.id) {
+          state.chatId = '';
+          state.project = '';
+          newDraft();
+        }
+        await loadChats();
+        toast('已删除', 'good');
+      } catch (e) {
+        toast(e.message || '删不掉', 'bad');
+      }
+    };
+    item.appendChild(del);
+
+    return item;
   }
 
   function newDraft() {
@@ -346,6 +417,9 @@
     renderChats();
     setRunState('空闲', false);
     refreshUsage();
+    // 把上一轮的上下文用量缓存到 modal，切 chat 时立即显示
+    api(`/api/context?chatId=${encodeURIComponent(state.chatId)}`)
+      .then(paintUsage).catch(() => {});
     await loadAssets(true);
   }
 
@@ -1517,6 +1591,7 @@
   }
 
   async function openUsageBoard() {
+    // 顶部活动链接也走这张：把累计请求 + 输出字节摆出来当概览
     let data = { requests: 0, bytes: 0, since: '' };
     try { data = await api('/api/usage'); } catch { /* 用默认值 */ }
     const kb = size(data.bytes || 0);
@@ -1528,6 +1603,49 @@
         <li>本地版不扣积分，花的是你自己上游账号的钱</li>
       </ul>`);
     $('announcementConfirm').textContent = '知道了';
+  }
+
+  /** 上下文用量详情弹窗：照主站那张按类拆分的样式 */
+  async function openUsageDetail() {
+    if (!state.chatId) {
+      toast('先打开一个项目再来看上下文', 'bad');
+      return;
+    }
+    let data;
+    try { data = await api(`/api/context?chatId=${encodeURIComponent(state.chatId)}`); }
+    catch (e) { toast(e.message || '拉不到', 'bad'); return; }
+    paintUsage(data);
+    openModal('usageDialog');
+  }
+
+  function paintUsage(data) {
+    const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+    $('usagePct').textContent = `${data.pct.toFixed(1)}%`;
+    $('usageUsed').textContent = `已使用  ${fmt(data.used)} / ${fmt(data.limit)}`;
+
+    // 彩色进度条：按各类占比横向拼接
+    const bar = $('usageBar');
+    bar.textContent = '';
+    data.categories.forEach((cat) => {
+      if (cat.pct <= 0) return;
+      const seg = make('div', `usage-seg usage-${cat.color}`);
+      seg.style.width = `${Math.max(2, cat.pct)}%`;
+      seg.title = `${cat.name} · ${cat.pct.toFixed(1)}%`;
+      bar.appendChild(seg);
+    });
+
+    const list = $('usageCats');
+    list.textContent = '';
+    data.categories.forEach((cat) => {
+      const row = make('div', 'usage-cat');
+      const dot = make('i', `usage-dot usage-${cat.color}`);
+      const name = make('span', 'usage-name', cat.name);
+      const pct = make('span', 'usage-cat-pct', `${cat.pct.toFixed(1)}%`);
+      row.appendChild(dot);
+      row.appendChild(name);
+      row.appendChild(pct);
+      list.appendChild(row);
+    });
   }
 
   /* ------------------------------------------------------------ 引导 */
@@ -1721,7 +1839,8 @@
       event.preventDefault();
       openUsageBoard();
     };
-    $('balance').onclick = () => openUsageBoard();
+    $('balance').onclick = () => openUsageDetail();
+    $('usageDialogClose').onclick = () => closeModal('usageDialog');
     $('profileButton').onclick = () => openSettings();
 
     // 资产栏
