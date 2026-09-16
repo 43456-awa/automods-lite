@@ -1261,6 +1261,10 @@ async function runAgent(chat, emit) {
   liveRuns.set(chat.id, ac);
   chat.busy = true;
   saveChat(chat);
+  // 本次新增的 assistant 字符数：本轮开始前的历史长度，留给 finally 算差值
+  const baselineAsst = chat.messages
+    .filter((m) => m.role === 'assistant')
+    .reduce((sum, m) => sum + String(m.content || '').length, 0);
 
   const messages = toApiMessages(chat, cfg);
   let liveNode = false; // 是否已有流式气泡
@@ -1399,10 +1403,10 @@ async function runAgent(chat, emit) {
     chat.updatedAt = Date.now();
     saveChat(chat);
     // 这一轮写进工程的内容总长，当作输出量记一笔
-    const wrote = chat.messages
+    const nowAsst = chat.messages
       .filter((m) => m.role === 'assistant')
       .reduce((sum, m) => sum + String(m.content || '').length, 0);
-    bumpUsage(wrote);
+    bumpUsage(Math.max(0, nowAsst - baselineAsst));
     emit({ k: 'run_end' });
     emit({ k: 'files', files: await listProjectFiles(project), project });
     // 收尾后再总结记忆；用 memory_status，前端不会再把界面打回「停止」

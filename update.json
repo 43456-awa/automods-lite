@@ -1,5 +1,5 @@
 {
-  "version": "0.3.17",
-  "notes": "Force action-first rounds: short thinking, announce then write_file immediately; split large mods across turns instead of endless reasoning",
+  "version": "0.4.0",
+  "notes": "1:1 复刻 automods.cn UI（启动页/侧栏/顶栏/输入栏/资产栏/弹窗/引导）+ 实跑验证两轮（84s/15文件，90s/11文件）。status 心跳按 15s 节流，think_delta 攒成一行不再爆炸。新增 tools/smoke.mjs 冒烟脚本和 ?chat=<id> URL 参数。",
   "minNode": 18
 }
