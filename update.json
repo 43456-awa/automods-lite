@@ -1,5 +1,5 @@
 {
-  "version": "0.3.16",
-  "notes": "Connect timeout no longer aborts long reasoning streams; nested file tree; zip folder/project download; Gradle build publishes rN jars",
+  "version": "0.3.17",
+  "notes": "Force action-first rounds: short thinking, announce then write_file immediately; split large mods across turns instead of endless reasoning",
   "minNode": 18
 }
