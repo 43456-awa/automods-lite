@@ -292,6 +292,21 @@
 
 /* ---------------- 构建环境徽章 ---------------- */
 
+/* 输入栏那行「上下文 X / 256K」现在可以点开详情，给个可点的样子 */
+#ctxMeter {
+  cursor: pointer;
+}
+
+#ctxMeter:hover b {
+  color: var(--accent);
+}
+
+#ctxMeter:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-radius: 4px;
+}
+
 #buildEnv .model-switch-current.ok {
   color: var(--success);
 }

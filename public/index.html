@@ -204,14 +204,6 @@
                     <div class="model-switch-menu" hidden></div>
                   </div>
 
-                  <div class="composer-model-switch" id="crewSwitch">
-                    <button class="model-switch-trigger" type="button" aria-expanded="false"
-                            aria-label="选择这一轮同时派几个帮手">
-                      <small class="model-switch-current">自动</small>
-                    </button>
-                    <div class="model-switch-menu" hidden></div>
-                  </div>
-
                   <span class="grow"></span>
                   <div class="composer-model-switch" id="buildEnv" title="构建环境">
                     <button class="model-switch-trigger" type="button" aria-expanded="false"
@@ -221,7 +213,8 @@
                     </button>
                     <div class="model-switch-menu" id="buildEnvMenu" hidden>
                       <button type="button" id="buildEnvCompile">编译当前工程的 jar</button>
-                      <button type="button" id="buildEnvSettings">去设置 Gradle 路径</button>
+                      <button type="button" id="buildEnvHelp">怎么让它变成「就绪」？</button>
+                      <button type="button" id="buildEnvSettings">去设置里填 Gradle 路径</button>
                       <small class="build-env-note" id="buildEnvNote"></small>
                     </div>
                   </div>
@@ -232,7 +225,8 @@
                     </button>
                     <div class="model-switch-menu" hidden></div>
                   </div>
-                  <span class="hx-ctx" id="ctxMeter" title="上下文用量（按 token 估算）">
+                  <span class="hx-ctx" id="ctxMeter" role="button" tabindex="0"
+                        title="点一下看上下文都花在哪了">
                     <b id="ctxText">上下文 0 / 256K</b>
                     <i><em id="ctxFill"></em></i>
                   </span>

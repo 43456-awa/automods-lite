@@ -1138,16 +1138,20 @@
       const note = $('buildEnvNote');
       if (g.ok) {
         label.textContent = g.name || '就绪';
-        label.title = `系统 gradle: ${g.system ? '✓' : '×'} · 工程 gradlew: ${g.wrapper ? '✓' : '×'}`;
+        label.title = `系统 gradle：${g.system ? '有' : '没有'}\n工程 gradlew：${g.wrapper ? '有' : '没有'}\n点开可以编译`;
         label.classList.remove('bad', 'warn');
         label.classList.add('ok');
       } else {
         label.textContent = '未就绪';
-        label.title = '工程里没有 gradlew，也未指定本机 gradle 路径';
+        label.title = '没找到能用的 Gradle —— 点开看怎么解决';
         label.classList.remove('ok', 'warn');
         label.classList.add('bad');
       }
-      if (note) note.textContent = `Node ${env.node} · ${env.platform}`;
+      if (note) {
+        note.textContent = g.ok
+          ? `Node ${env.node} · ${env.platform}`
+          : `系统没装 gradle，工程里也没有 gradlew`;
+      }
     } catch (e) { /* 静默 */ }
   }
 
@@ -1697,13 +1701,23 @@
 
   /** 上下文用量详情弹窗：照主站那张按类拆分的样式 */
   async function openUsageDetail() {
-    if (!state.chatId) {
-      toast('先打开一个项目再来看上下文', 'bad');
+    // 没打开项目就用最近那个——之前直接弹个提示，很容易被当成「点了没反应」
+    let chatId = state.chatId;
+    if (!chatId) {
+      const recent = state.chats.find((c) => !c.archived) || state.chats[0];
+      if (recent) chatId = recent.id;
+    }
+    if (!chatId) {
+      toast('还没有任何项目，先发一句话建一个', 'bad');
       return;
     }
     let data;
-    try { data = await api(`/api/context?chatId=${encodeURIComponent(state.chatId)}`); }
-    catch (e) { toast(e.message || '拉不到', 'bad'); return; }
+    try {
+      data = await api(`/api/context?chatId=${encodeURIComponent(chatId)}`);
+    } catch (e) {
+      toast(e.message || '拉不到用量', 'bad');
+      return;
+    }
     paintUsage(data);
     openModal('usageDialog');
   }
@@ -1939,6 +1953,14 @@
     };
     $('balance').onclick = () => openUsageDetail();
     $('usageDialogClose').onclick = () => closeModal('usageDialog');
+    // 输入栏那行「上下文 X / 256K」也要能点开——之前只挂了 title，点了没反应
+    $('ctxMeter').onclick = () => openUsageDetail();
+    $('ctxMeter').onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openUsageDetail();
+      }
+    };
     $('profileButton').onclick = () => openSettings();
 
     // 资产栏
@@ -2007,13 +2029,6 @@
       }
     });
 
-    bindSwitch('#crewSwitch', async () => [
-      { id: 'auto', name: '自动 · 本机一次跑一个' },
-      { id: '1', name: '1 个 · 本机只能这样' },
-    ], async () => {
-      toast('本地版没有帮手集群，一次就一个', 'bad');
-    });
-
     bindSwitch('#ctxSwitch', async () => CTX_CHOICES.map((item) => ({
       id: item.id, name: `${item.name} · ${item.note}`,
     })), async (id) => {
@@ -2039,11 +2054,34 @@
       $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
       buildJar();
     };
+    $('buildEnvHelp').onclick = () => {
+      document.querySelector('#buildEnv .model-switch-menu').hidden = true;
+      $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
+      const env = state.env || {};
+      const g = env.gradle || {};
+      openAnnouncement('构建环境怎么算「就绪」', `
+        <p>本地版编译模组要有一个能用的 Gradle。现在的状态：</p>
+        <ul>
+          <li>系统里装的 gradle：<b>${g.system ? '有' : '没有'}</b></li>
+          <li>工程自带的 gradlew：<b>${g.wrapper ? '有' : '没有'}</b></li>
+        </ul>
+        <p>三条路，随便走一条就变成就绪：</p>
+        <ul>
+          <li><b>① 把 MDK 的包装器拷进工程</b>（推荐）——从 NeoForge MDK 里把
+              <code>gradlew</code> / <code>gradlew.bat</code> / <code>gradle/</code>
+              整个目录复制到工程根目录，和 <code>build.gradle</code> 并排。</li>
+          <li><b>② 装一个 Gradle</b>——装完在设置里填它的路径（<code>gradleCmd</code>）。</li>
+          <li><b>③ 先不编译</b>——把源码打包拿走，在自己的 IDE 里编译也一样。</li>
+        </ul>
+        <p>另外编译还需要 <b>JDK 21</b>（NeoForge 1.21 的要求），没装的话 Gradle 也会报错。</p>
+      `);
+      $('announcementConfirm').textContent = '知道了';
+    };
     $('buildEnvSettings').onclick = () => {
       document.querySelector('#buildEnv .model-switch-menu').hidden = true;
       $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
       openSettings();
-      toast('往下滚到 Gradle 命令那行', 'good');
+      toast('往下滚到「本机 Gradle 命令」那行', 'good');
     };
 
     // 弹窗
