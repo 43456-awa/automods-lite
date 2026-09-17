@@ -8,6 +8,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -1002,6 +1003,11 @@ ${memBlock}
 10. 若 write_file 返回「参数 JSON 不完整」，立刻重试一次完整 JSON，不要改聊别的。
 11. **思考/reasoning 必须全程用简体中文**，禁止用英文推理；正文回复也用简体中文。
 12. 历史里标了「历史回执已压缩」的工具结果只是摘要，不是文件现状；改旧文件前先 read_file。
+13. 写 gradle.properties 时，**neo_version 必须写真实存在的版本号**：
+    1.21.1 对应 21.1.x，而 x 是 build 号，实际长这样：21.1.250。
+    不要写 21.1.0 / 21.1.1 / 21.1.10 这类整齐数字 —— maven 上没有，
+    编译会直接报 Could not find net.neoforged:neoforge。拿不准就写 21.1.250。
+    同理 minecraft_version 写 1.21.1、neoform 相关的版本别自己编。
 
 标准目录：
 src/main/java/com/example/${cfg.modId}/
@@ -1174,6 +1180,21 @@ async function runGradle(root, task, emit) {
     env.PATH = `${path.join(jdk.home, 'bin')}${path.delimiter}${env.PATH || ''}`;
   }
 
+  /* 内存不够就别开跑了：NeoForge 第一次编译要反编译整个 Minecraft，
+   * 4G 可用内存都撑不住（实测 4.1G 时 JVM 直接崩在 G1 virtual space 上）。
+   * 与其让人等五分钟看一句 "insufficient memory"，不如提前说清楚。 */
+  const freeGb = os.freemem() / 1024 / 1024 / 1024;
+  if (freeGb < 4) {
+    return {
+      ok: false,
+      out: `可用内存只有 ${freeGb.toFixed(1)} GB，先不开编译了。\n`
+        + 'NeoForge 第一次编译要把整个 Minecraft 反编译一遍，至少需要 4-5 GB 空闲内存，\n'
+        + '不然 JVM 会直接崩（不是代码问题）。\n\n'
+        + '请先关掉浏览器、游戏、IDE 等占内存的程序，然后重新点编译。\n'
+        + '（Gradle 和依赖已经下好了，第二次会快很多。）',
+    };
+  }
+
   return new Promise((resolve) => {
     const timeoutMs = Math.max(30, Number(cfg.gradleTimeoutSec) || 180) * 1000;
     const args = [task];
@@ -1232,9 +1253,21 @@ async function runGradle(root, task, emit) {
         return;
       }
       const ok = code === 0;
+      /* 反编译 Minecraft 是 NeoForge 第一次编译最吃内存的一步，
+       * 撑不住时 JVM 会直接崩，输出里只有一行 "insufficient memory"
+       * 和一堆 hs_err 路径。这种不是代码问题，得明确告诉人怎么办。 */
+      let hint = '';
+      if (!ok && /insufficient memory|OutOfMemoryError|hs_err_pid/i.test(out)) {
+        const freeGb = os.freemem() / 1024 / 1024 / 1024;
+        hint = '\n\n【这次是内存不够，不是代码问题】\n'
+          + `当前可用内存约 ${freeGb.toFixed(1)} GB。NeoForge 第一次编译要反编译整个 `
+          + 'Minecraft，至少需要 4-5 GB 空闲。\n'
+          + '建议：关掉浏览器、游戏等占内存的程序，然后重新点编译。\n'
+          + '（已经下好的依赖会留着，第二次编译快很多。）\n';
+      }
       resolve({
         ok,
-        out: (ok ? '构建成功\n' : `构建失败（exit ${code}）\n`) + tail(out, 8000),
+        out: (ok ? '构建成功\n' : `构建失败（exit ${code}）\n`) + tail(out, 8000) + hint,
       });
     });
   });
@@ -2171,8 +2204,12 @@ set DIRNAME=%~dp0
 set APP_HOME=%DIRNAME%
 set CLASSPATH=%APP_HOME%\\gradle\\wrapper\\gradle-wrapper.jar
 "%JAVA_HOME%\\bin\\java.exe" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
-endlocal
+set EXIT_CODE=%ERRORLEVEL%
+endlocal & exit /b %EXIT_CODE%
 `;
+/* 注意最后那行：endlocal 会把 ERRORLEVEL 抹掉，必须先把退出码存下来再
+ * endlocal & exit /b，否则 gradle 报 BUILD FAILED 时 bat 却返回 0，
+ * 上层（runGradle 按 code === 0 判定）会把失败当成成功。 */
 
 async function downloadWrapperJar(dest) {
   const res = await fetch(WRAPPER_URL, { signal: AbortSignal.timeout(60000) });
@@ -2184,6 +2221,43 @@ async function downloadWrapperJar(dest) {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   await fsp.writeFile(dest, buf);
   return buf.length;
+}
+
+/* NeoForge 版本号要去 maven 查。模型经常编一个不存在的 ——
+ * 实测它给 1.21.1 写的是 `21.1.0`，而 maven 上这个系列是 `21.1.250`
+ * 这种带 build 号的，21.1.0 直接 404，编译必然失败。 */
+const NEOFORGE_METADATA = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml';
+
+async function neoVersionExists(version) {
+  try {
+    /* 用 GET 不用 HEAD：maven.neoforged.net 对 HEAD 不返回 200，
+     * 会把存在说成不存在（实测 21.1.250 明明有，却被判成"不存在"，
+     * 于是每跑一次 setup 就把版本号"改成"同一个值，看着很怪）。
+     * pom 只有几 KB，直接 GET 不心疼。 */
+    const res = await fetch(
+      `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}.pom`,
+      { signal: AbortSignal.timeout(20000) },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 取某个系列（如 21.1）里最大的版本号 */
+async function latestNeoForgeVersion(series) {
+  const res = await fetch(NEOFORGE_METADATA, { signal: AbortSignal.timeout(30000) });
+  if (!res.ok) throw new Error(`查 NeoForge 版本表失败（HTTP ${res.status}）`);
+  const xml = await res.text();
+  const all = [...xml.matchAll(/<version>([\d.]+)<\/version>/g)].map((m) => m[1]);
+  const hit = all.filter((v) => v.startsWith(`${series}.`));
+  if (!hit.length) return '';
+  hit.sort((a, b) => {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    return (pa[0] - pb[0]) || (pa[1] - pb[1]) || (pa[2] - pb[2]);
+  });
+  return hit[hit.length - 1];
 }
 
 /** 给工程装 gradlew；已存在就跳过 */
@@ -2202,15 +2276,19 @@ async function setupBuildEnv(root, cfg) {
   const jar = path.join(root, 'gradle', 'wrapper', 'gradle-wrapper.jar');
   const props = path.join(root, 'gradle', 'wrapper', 'gradle-wrapper.properties');
 
-  if (fs.existsSync(bat) && fs.existsSync(jar)) {
-    steps.push({ ok: true, text: '工程里已经有 gradlew，跳过' });
+  const batText = fs.existsSync(bat) ? (await readTextSafe(bat)) || '' : '';
+  const isMine = batText.includes('automods-lite'); // 之前自动放的（可能有旧版要更新）
+
+  if (fs.existsSync(bat) && fs.existsSync(jar) && !isMine) {
+    steps.push({ ok: true, text: '工程里已经有 gradlew（你自己放的），跳过' });
   } else {
     try {
       if (!fs.existsSync(jar)) {
         const bytes = await downloadWrapperJar(jar);
         steps.push({ ok: true, text: `下载 gradle-wrapper.jar（${(bytes / 1024).toFixed(0)} KB）` });
       }
-      if (!fs.existsSync(bat)) await fsp.writeFile(bat, GRADLEW_BAT, 'utf8');
+      // 自己放的 bat 要能更新（旧版忘了 exit /b，失败会被当成成功）
+      if (!fs.existsSync(bat) || isMine) await fsp.writeFile(bat, GRADLEW_BAT, 'utf8');
       if (!fs.existsSync(sh)) {
         await fsp.writeFile(sh, GRADLEW_SH, 'utf8');
         try { await fsp.chmod(sh, 0o755); } catch { /* Windows 上不重要 */ }
@@ -2233,16 +2311,66 @@ async function setupBuildEnv(root, cfg) {
     }
   }
 
-  // 3) gradle.properties 里的 mod 基本信息（编译要读）
+  // 3) gradle.properties：检查 neo_version 是不是真存在
   const gp = path.join(root, 'gradle.properties');
   if (!fs.existsSync(gp)) {
     steps.push({ ok: false, text: '工程里没有 gradle.properties，编译会缺 mod_id / neo_version' });
   } else {
-    const text = await readTextSafe(gp);
-    const hasNeo = /neo_version\s*=/.test(text || '');
-    steps.push(hasNeo
-      ? { ok: true, text: 'gradle.properties 里有 neo_version' }
-      : { ok: false, text: 'gradle.properties 里缺 neo_version，NeoForge 插件会解析失败' });
+    const text = (await readTextSafe(gp)) || '';
+    const cur = (text.match(/neo_version\s*=\s*(\S+)/) || [])[1];
+    if (!cur) {
+      steps.push({ ok: false, text: 'gradle.properties 里缺 neo_version，NeoForge 插件会解析失败' });
+    } else if (await neoVersionExists(cur)) {
+      steps.push({ ok: true, text: `neo_version=${cur}（maven 上有这个版本）` });
+    } else {
+      // 版本是编的，从 maven 找同系列最新的替上
+      const series = cur.split('.').slice(0, 2).join('.');
+      try {
+        const latest = await latestNeoForgeVersion(series);
+        if (latest) {
+          await fsp.writeFile(gp, text.replace(/neo_version\s*=\s*\S+/, `neo_version=${latest}`), 'utf8');
+          steps.push({ ok: true, text: `neo_version 从 ${cur} 改成 ${latest}（${cur} 在 maven 上不存在，${series} 系列最新是 ${latest}）` });
+        } else {
+          steps.push({ ok: false, text: `neo_version=${cur} 在 maven 上找不到，也没查到 ${series} 系列的可选版本` });
+        }
+      } catch (e) {
+        steps.push({ ok: false, text: `校正 neo_version 失败：${e.message || e}` });
+      }
+    }
+
+    /* 内存：NeoForge 第一次编译要反编译整个 Minecraft，默认 2G 堆会直接
+     * 把 JVM 撑崩（实测 hs_err 里就是 "insufficient memory ... G1 virtual space"）。
+     * 3G 堆 + 1G metaspace 是这台 16G 机器上比较稳的档位。 */
+    const text2 = (await readTextSafe(gp)) || '';
+    const jvmLine = text2.match(/org\.gradle\.jvmargs\s*=\s*(.*)/)?.[1] || '';
+    const heapMb = Number(jvmLine.match(/-Xmx(\d+)([GgMm])/)?.[1]
+      ? Number(jvmLine.match(/-Xmx(\d+)/)[1]) * (/[Gg]/.test(jvmLine) ? 1024 : 1)
+      : 0);
+    if (heapMb < 3072) {
+      const want = 'org.gradle.jvmargs=-Xmx3G -XX:MaxMetaspaceSize=1G';
+      const next = /org\.gradle\.jvmargs\s*=/.test(text2)
+        ? text2.replace(/org\.gradle\.jvmargs\s*=.*/, want)
+        : `${want}\n${text2}`;
+      await fsp.writeFile(gp, next, 'utf8');
+      steps.push({
+        ok: true,
+        text: heapMb
+          ? `把 Gradle 堆从 ${heapMb}M 提到 3G（反编译 Minecraft 很吃内存，2G 会崩）`
+          : '加上 Gradle 内存设置（-Xmx3G，反编译 Minecraft 需要）',
+      });
+    } else {
+      steps.push({ ok: true, text: `Gradle 堆 ${heapMb}M，够用` });
+    }
+  }
+
+  // 4) 顺手看一眼当前可用内存
+  const freeGb = os.totalmem ? os.freemem() / 1024 / 1024 / 1024 : 0;
+  if (freeGb && freeGb < 6) {
+    steps.push({
+      ok: false,
+      text: `当前只剩 ${freeGb.toFixed(1)} GB 可用内存。反编译 Minecraft 至少要 4-5 GB，`
+        + '建议先关掉浏览器等占内存的程序再编译。',
+    });
   }
 
   return { steps, jdk };
