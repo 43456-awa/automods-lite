@@ -1153,28 +1153,48 @@ function detectGradleCmd(root, cfg) {
   return null;
 }
 
-function runGradle(root, task, emit) {
-  return new Promise((resolve) => {
-    const cfg = loadConfig();
-    const detected = detectGradleCmd(root, cfg);
-    if (!detected) {
-      resolve({
-        ok: false,
-        out: '未找到 gradlew，也未在设置里配置 gradleCmd。请把 NeoForge MDK 的 gradlew 拷进工程，或在设置填写本机 gradle 路径。',
-      });
-      return;
-    }
+async function runGradle(root, task, emit) {
+  const cfg = loadConfig();
+  const detected = detectGradleCmd(root, cfg);
+  if (!detected) {
+    return {
+      ok: false,
+      out: '未找到 gradlew，也未在设置里配置 gradleCmd。'
+        + '点输入栏的「构建」徽章 →「一键准备构建环境」可以自动装一个。',
+    };
+  }
 
+  /* NeoForge 1.21 要 JDK 21，但 PATH 里的 java 未必是 21。
+   * 这里把 JAVA_HOME 和 PATH 都指向找到的 JDK 21，
+   * 否则 gradlew 内部调 java 会拿到旧版本，报「Unsupported class file major version」。 */
+  const jdk = await detectJdk21();
+  const env = { ...process.env };
+  if (jdk.ok && jdk.home) {
+    env.JAVA_HOME = jdk.home;
+    env.PATH = `${path.join(jdk.home, 'bin')}${path.delimiter}${env.PATH || ''}`;
+  }
+
+  return new Promise((resolve) => {
     const timeoutMs = Math.max(30, Number(cfg.gradleTimeoutSec) || 180) * 1000;
     const args = [task];
-    emit({ k: 'status', text: `Gradle ${task}…` });
+    emit({
+      k: 'status',
+      text: jdk.ok
+        ? `Gradle ${task}…（JDK ${jdk.version}）`
+        : `Gradle ${task}…（没找到 JDK 21，PATH 里是 ${jdk.version || '未知'}）`,
+    });
 
     let child;
     try {
-      child = spawn(detected.cmd, args, {
+      /* Windows 上不能直接 spawn .bat/.cmd —— Node 从 v20 起（CVE-2024-27980 的修复）
+       * 会直接抛 spawn EINVAL。必须走 shell，而且路径带空格（比如
+       * "C:\Users\...\Claude Code\..."）时得自己加引号，否则 cmd.exe 解析错。 */
+      const isBat = /\.(bat|cmd)$/i.test(detected.cmd);
+      child = spawn(isBat ? `"${detected.cmd}"` : detected.cmd, args, {
         cwd: root,
-        env: { ...process.env, JAVA_HOME: process.env.JAVA_HOME },
+        env,
         windowsHide: true,
+        shell: isBat,
       });
     } catch (e) {
       resolve({ ok: false, out: `无法启动 Gradle：${e.message || e}` });
@@ -2030,11 +2050,13 @@ function bumpUsage(bytes) {
 
 /** 本机有没有能用的 gradle（不看具体工程，只看机器） */
 function detectSystemGradle() {
-  const cmd = process.platform === 'win32' ? 'gradle.bat' : 'gradle';
+  const isWin = process.platform === 'win32';
+  const cmd = isWin ? 'gradle.bat' : 'gradle';
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(cmd, ['-v'], { windowsHide: true });
+      // Windows 上 gradle 是 .bat，spawn 必须走 shell，否则 EINVAL
+      child = spawn(cmd, ['-v'], { windowsHide: true, shell: isWin });
     } catch {
       resolve({ ok: false, name: '' });
       return;
@@ -2069,6 +2091,161 @@ function anyProjectHasWrapper() {
   } catch {
     return false;
   }
+}
+
+/* ---------------- JDK 检测 ----------------
+ * NeoForge 1.21 要 JDK 21。但机器上 PATH 里的 java 未必是 21
+ * （实测主人这台 PATH 是 17，jdk-21 其实装在 Program Files 里，只是没进 PATH），
+ * 所以要主动去常见安装位置翻一遍，编译时把 JAVA_HOME 指过去。 */
+const JDK_BASES = [
+  'C:\\Program Files\\Java',
+  'C:\\Program Files\\Eclipse Adoptium',
+  'C:\\Program Files\\Microsoft',
+  'C:\\Program Files\\Amazon Corretto',
+  'C:\\Program Files\\Zulu',
+  'C:\\Program Files\\BellSoft',
+];
+
+function javaMajorVersion(javaCmd) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(javaCmd, ['-version'], { windowsHide: true });
+    } catch {
+      resolve(0);
+      return;
+    }
+    let out = '';
+    child.stdout.on('data', (c) => { out += c.toString(); });
+    child.stderr.on('data', (c) => { out += c.toString(); });
+    child.on('error', () => resolve(0));
+    child.on('close', () => {
+      const m = out.match(/version "(\d+)/);
+      resolve(m ? Number(m[1]) : 0);
+    });
+    setTimeout(() => { try { child.kill(); } catch { /* 已退出 */ } }, 8000);
+  });
+}
+
+/** 找 JDK 21：环境变量 → 常见安装目录 → PATH 里的 java */
+async function detectJdk21() {
+  const exe = process.platform === 'win32' ? 'java.exe' : 'java';
+  const candidates = [];
+
+  if (process.env.JAVA_HOME) candidates.push(process.env.JAVA_HOME);
+  for (const base of JDK_BASES) {
+    for (const dir of await readdirSafe(base)) {
+      if (/jdk-?21/i.test(dir)) candidates.push(path.join(base, dir));
+    }
+  }
+
+  for (const home of candidates) {
+    const java = path.join(home, 'bin', exe);
+    if (!fs.existsSync(java)) continue;
+    if (await javaMajorVersion(java) === 21) return { ok: true, home, java, version: 21 };
+  }
+
+  // PATH 里的兜底
+  const pathVer = await javaMajorVersion('java');
+  if (pathVer === 21) return { ok: true, home: process.env.JAVA_HOME || '', java: 'java', version: 21 };
+  return { ok: false, version: pathVer, tried: candidates.slice(0, 6) };
+}
+
+/* ---------------- 准备构建环境 ----------------
+ * 工程里没有 gradlew 时，从 Gradle 官方仓库把 wrapper 拿下来装上。
+ * 只需要一个 43KB 的 jar + 几个脚本，之后 gradlew 自己会去下 Gradle 发行版。 */
+const WRAPPER_URL = 'https://raw.githubusercontent.com/gradle/gradle/v8.10.0/gradle/wrapper/gradle-wrapper.jar';
+
+const GRADLEW_SH = `#!/bin/sh
+# Gradle wrapper —— 由 automods-lite 自动放置
+DIR=\$(cd "\$(dirname "\$0")" && pwd)
+APP_HOME=\$DIR
+CLASSPATH=\$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+exec java -classpath "\$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "\$@"
+`;
+
+const GRADLEW_BAT = `@rem Gradle wrapper —— 由 automods-lite 自动放置
+@echo off
+setlocal
+set DIRNAME=%~dp0
+set APP_HOME=%DIRNAME%
+set CLASSPATH=%APP_HOME%\\gradle\\wrapper\\gradle-wrapper.jar
+"%JAVA_HOME%\\bin\\java.exe" -classpath "%CLASSPATH%" org.gradle.wrapper.GradleWrapperMain %*
+endlocal
+`;
+
+async function downloadWrapperJar(dest) {
+  const res = await fetch(WRAPPER_URL, { signal: AbortSignal.timeout(60000) });
+  if (!res.ok) throw new Error(`下载 gradle-wrapper.jar 失败（HTTP ${res.status}）`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 10000 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+    throw new Error('下载到的不是有效的 jar');
+  }
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  await fsp.writeFile(dest, buf);
+  return buf.length;
+}
+
+/** 给工程装 gradlew；已存在就跳过 */
+async function setupBuildEnv(root, cfg) {
+  const steps = [];
+
+  // 1) JDK 21
+  const jdk = await detectJdk21();
+  steps.push(jdk.ok
+    ? { ok: true, text: `找到 JDK 21：${jdk.home || 'PATH 里的 java'}` }
+    : { ok: false, text: `没找到 JDK 21（PATH 里的 java 是 ${jdk.version || '未知'} 版）。NeoForge 1.21 必须要 21。` });
+
+  // 2) wrapper
+  const bat = path.join(root, 'gradlew.bat');
+  const sh = path.join(root, 'gradlew');
+  const jar = path.join(root, 'gradle', 'wrapper', 'gradle-wrapper.jar');
+  const props = path.join(root, 'gradle', 'wrapper', 'gradle-wrapper.properties');
+
+  if (fs.existsSync(bat) && fs.existsSync(jar)) {
+    steps.push({ ok: true, text: '工程里已经有 gradlew，跳过' });
+  } else {
+    try {
+      if (!fs.existsSync(jar)) {
+        const bytes = await downloadWrapperJar(jar);
+        steps.push({ ok: true, text: `下载 gradle-wrapper.jar（${(bytes / 1024).toFixed(0)} KB）` });
+      }
+      if (!fs.existsSync(bat)) await fsp.writeFile(bat, GRADLEW_BAT, 'utf8');
+      if (!fs.existsSync(sh)) {
+        await fsp.writeFile(sh, GRADLEW_SH, 'utf8');
+        try { await fsp.chmod(sh, 0o755); } catch { /* Windows 上不重要 */ }
+      }
+      if (!fs.existsSync(props)) {
+        await fsp.writeFile(props, [
+          'distributionBase=GRADLE_USER_HOME',
+          'distributionPath=wrapper/dists',
+          'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.10-bin.zip',
+          'networkTimeout=10000',
+          'validateDistributionUrl=true',
+          'zipStoreBase=GRADLE_USER_HOME',
+          'zipStorePath=wrapper/dists',
+          '',
+        ].join('\n'), 'utf8');
+      }
+      steps.push({ ok: true, text: '装好 gradlew（第一次编译它会自己下 Gradle 8.10，约 130MB）' });
+    } catch (e) {
+      steps.push({ ok: false, text: `装 wrapper 失败：${e.message || e}` });
+    }
+  }
+
+  // 3) gradle.properties 里的 mod 基本信息（编译要读）
+  const gp = path.join(root, 'gradle.properties');
+  if (!fs.existsSync(gp)) {
+    steps.push({ ok: false, text: '工程里没有 gradle.properties，编译会缺 mod_id / neo_version' });
+  } else {
+    const text = await readTextSafe(gp);
+    const hasNeo = /neo_version\s*=/.test(text || '');
+    steps.push(hasNeo
+      ? { ok: true, text: 'gradle.properties 里有 neo_version' }
+      : { ok: false, text: 'gradle.properties 里缺 neo_version，NeoForge 插件会解析失败' });
+  }
+
+  return { steps, jdk };
 }
 
 async function serveStatic(req, res, urlPath) {
@@ -2656,6 +2833,33 @@ const server = http.createServer(async (req, res) => {
        * 返回 500 的话前端只会显示一句 HTTP 500，把真正的原因
        * （没找到 gradlew / 编译报错全文）全吞掉。 */
       json(res, 400, { ...result, error: result.out || '编译没通过' });
+      return;
+    }
+
+    /** 一键准备构建环境：找 JDK 21 + 给工程装 gradlew */
+    if (p === '/api/build/setup' && req.method === 'POST') {
+      const body = await readJson(req);
+      const project = body.project || 'default';
+      const root = ensureProject(project);
+      if (!root) return json(res, 400, { error: 'bad project' });
+      try {
+        const result = await setupBuildEnv(root, loadConfig());
+        json(res, 200, { ok: result.steps.every((s) => s.ok), ...result });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return;
+    }
+
+    /** JDK / Gradle 体检，给前端显示 */
+    if (p === '/api/build/doctor' && req.method === 'GET') {
+      const jdk = await detectJdk21();
+      const sys = await detectSystemGradle();
+      json(res, 200, {
+        jdk: { ok: jdk.ok, version: jdk.version, home: jdk.home || '' },
+        gradle: sys,
+        wrapperAny: anyProjectHasWrapper(),
+      });
       return;
     }
 

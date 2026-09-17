@@ -1385,6 +1385,36 @@
     }
   }
 
+  /** 一键准备构建环境：找 JDK 21 + 给工程装 gradlew */
+  async function prepareBuildEnv() {
+    if (!state.project) {
+      toast('先打开一个项目', 'bad');
+      return;
+    }
+    toast('正在准备：找 JDK 21、装 gradlew…');
+    try {
+      const r = await api('/api/build/setup', {
+        method: 'POST',
+        body: JSON.stringify({ project: state.project }),
+      });
+      const lines = (r.steps || [])
+        .map((s) => `${s.ok ? '✅' : '⚠️'} ${esc(s.text)}`)
+        .join('<br />');
+      openAnnouncement(r.ok ? '构建环境准备好了' : '还差一点', `
+        <p>${lines}</p>
+        ${r.ok
+    ? `<p>现在可以点「编译当前工程的 jar」了。
+           第一次编译要下载 Gradle 8.10（约 130MB）和 NeoForge 依赖，
+           慢的话十几分钟，之后就有缓存了。</p>`
+    : `<p>把上面 ⚠️ 那几项解决掉再回来点一次。</p>`}
+      `);
+      $('announcementConfirm').textContent = '知道了';
+      refreshBuildEnv();
+    } catch (e) {
+      toast(e.message || '准备失败', 'bad');
+    }
+  }
+
   async function buildJar() {
     if (!state.project) return;
     const btn = state.buildButton;
@@ -2387,26 +2417,35 @@
       $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
       buildJar();
     };
+    $('buildEnvSetup').onclick = () => {
+      document.querySelector('#buildEnv .model-switch-menu').hidden = true;
+      $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
+      prepareBuildEnv();
+    };
     $('buildEnvHelp').onclick = () => {
       document.querySelector('#buildEnv .model-switch-menu').hidden = true;
       $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
       const env = state.env || {};
       const g = env.gradle || {};
       openAnnouncement('构建环境怎么算「就绪」', `
-        <p>本地版编译模组要有一个能用的 Gradle。现在的状态：</p>
+        <p><b>最快：点上面的「⚡ 一键准备构建环境」</b>——会自动去找 JDK 21，
+           再从 Gradle 官方仓库把 gradlew 装进工程。</p>
+        <p>现在的状态：</p>
         <ul>
           <li>系统里装的 gradle：<b>${g.system ? '有' : '没有'}</b></li>
           <li>工程自带的 gradlew：<b>${g.wrapper ? '有' : '没有'}</b></li>
         </ul>
-        <p>三条路，随便走一条就变成就绪：</p>
+        <p>手动的话也有三条路：</p>
         <ul>
-          <li><b>① 把 MDK 的包装器拷进工程</b>（推荐）——从 NeoForge MDK 里把
+          <li><b>① 把 MDK 的包装器拷进工程</b>——从 NeoForge MDK 里把
               <code>gradlew</code> / <code>gradlew.bat</code> / <code>gradle/</code>
               整个目录复制到工程根目录，和 <code>build.gradle</code> 并排。</li>
           <li><b>② 装一个 Gradle</b>——装完在设置里填它的路径（<code>gradleCmd</code>）。</li>
           <li><b>③ 先不编译</b>——把源码打包拿走，在自己的 IDE 里编译也一样。</li>
         </ul>
-        <p>另外编译还需要 <b>JDK 21</b>（NeoForge 1.21 的要求），没装的话 Gradle 也会报错。</p>
+        <p><b>JDK 必须是 21</b>（NeoForge 1.21 的硬要求）。这台机器上 PATH 里的
+           java 是 17，但 <code>C:\\Program Files\\Java\\jdk-21</code> 是有的 ——
+           一键准备会自动把它挑出来用。</p>
       `);
       $('announcementConfirm').textContent = '知道了';
     };
