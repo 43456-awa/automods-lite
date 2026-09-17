@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
-  "notes": "1:1 复刻 automods.cn UI（启动页/侧栏/顶栏/输入栏/资产栏/弹窗/引导）+ 实跑验证两轮（84s/15文件，90s/11文件）。status 心跳按 15s 节流，think_delta 攒成一行不再爆炸。新增 tools/smoke.mjs 冒烟脚本和 ?chat=<id> URL 参数。",
+  "version": "0.5.0",
+  "notes": "编译链路打通（产出可用 jar）+ 贴图工坊（SenseNova 生图，含图生图与全量参数）+ 预览台可点开详情 + 上下文长度改 256K/1M + 侧栏归档重命名 + 上下文用量弹窗。修掉 spawn EINVAL（编译从来跑不通的根因）、neo_version 编造、gradlew.bat 吞退出码、中文名显示成英文、MC 1.21 配方 key 解析失败等。",
   "minNode": 18
 }
