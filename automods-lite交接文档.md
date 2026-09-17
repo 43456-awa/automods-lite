@@ -304,20 +304,55 @@ tools/update-core.ps1           ← 真正干活的（藏在子目录，避免�
 
 **给老副本的正确更新方式（已实测通过，exit=0）**：
 
-1. **只手动替换 `update.bat` 这一个文件**，内容取自
-   `https://cdn.jsdelivr.net/gh/43456-awa/automods-lite@main/update.bat`
-   （或从 GitHub 下整包 ZIP 解压覆盖）
-2. 再双击这个新 `update.bat` —— 它不下载自己，会正常拉 `update-core.ps1`
-   并做整包覆盖
+**首选：直接把 `fix-update.bat` 发给对方**（QQ / 微信传文件，零网络依赖）。
+老副本靠网络自救基本是死路，原因见后。
 
-实测结果：`server.js` 118140 字节且含新修复、`package.json` / `update.json`
-都是 `0.5.1`、`public/vendor/` 10 个文件完好、`config.json` 一个字没动。
+1. 把仓库根目录的 `fix-update.bat`（约 4.8 KB）单独发给朋友
+2. 他把它放进 automods-lite 文件夹，**双击**
+   —— 它换个名字，所以运行期间不会被任何东西覆盖，绕开了上面那个自我覆盖的坑
+3. 它会拉 `tools/update-core.ps1` 再整包更新；跑完副本就是最新的，
+   同时拿到**新的 `update.bat`** 和**页面里的「立即更新」按钮**，以后就正常了
 
-**或者更省事**：直接下 GitHub 的整包 ZIP 解压覆盖整个文件夹
+一定要让对方自己下载的话，只有这一个源能用：
+
+```
+https://raw.githubusercontent.com/43456-awa/automods-lite/main/fix-update.bat
+```
+
+> **⚠️ jsDelivr 对 `.bat` 一律返回 403 Forbidden**（实测 `update.bat`、
+> `fix-update.bat` 都是；而 `.ps1` / `.mjs` / `.json` 正常）。
+> 所以「从 jsDelivr 下载 update.bat」这条路**根本不通** —— 写文档时踩过。
+> 而老版 `update.bat` 的清单里恰恰有 `call :get update.bat`：在 jsDelivr 上必然
+> `FAILED update.bat`，退回 raw.githubusercontent 又会自我覆盖把副本写坏。**双重死路。**
+> 这也就是日志里 `FAILED boot.js` / `FAILED update.bat` 那条先兆的由来。
+
+**实测结果**：`server.js` 122454 字节且含新修复、`package.json` / `update.json`
+都是 `0.5.1`、`public/vendor/` 10 个文件完好、`config.json` 一个字没动、
+`app.js` 里能搜到「立即更新」×3（页面按钮回来了）。
+
+**或者更省事**：从 GitHub 下整包 ZIP 解压覆盖整个文件夹
 （ZIP 里没有 `config.json` / `workspace/` / `chats/`，所以这些不会被覆盖）。
 
 > 教训：**给非技术用户的自动更新脚本，绝不能让它下载它自己。**
 > cmd.exe 按字节偏移解析 `.bat`，自我覆盖 = 偏移错位 = 文件错位写坏。
+
+### ⚠️ CDN 缓存会拿到旧脚本（更新静默失效，2026-09-17 实测）
+
+下载 `tools/update-core.ps1` 时**别只信 `@main`**：jsDelivr 的 `@main`
+最长缓存 12 小时，实测拿到的那份 `Age = 15424 秒（约 4.3 小时）`，
+是修 `$root` **之前**的旧版。那个旧版只用一层 `Split-Path` 算项目根，
+会把整包解进 `tools\`，工程一个字没更新，而脚本照样打印
+「[完成] 代码已更新」——**看起来成功，其实什么都没做**。
+
+（第一次实测就中招：`package.json` 仍是 `0.4.0`，`tools/` 里被塞了整个项目。）
+
+两处加固，两个 bat 都加了：
+
+1. 优先用**钉死 commit 的不可变地址**（`@.../<sha>/tools/update-core.ps1`），
+   再退回 `@main` → fastly → raw
+2. 下载后**校验内容**：0 字节、或不含 `$scriptDir`（旧版特征）就删掉换下一个源
+   —— 0 字节那条也是真 bug：curl 失败会留下空文件，`if not exist` 当成成功，
+   PowerShell 跑个空脚本报 OK 但什么都没更新
 
 ### 更新范围
 
