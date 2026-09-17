@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { getTracks, getChapter, askAboutChapter, generateChapter, deleteCustom } from './learn.mjs';
@@ -1185,12 +1185,20 @@ async function runGradle(root, task, emit) {
    * 与其让人等五分钟看一句 "insufficient memory"，不如提前说清楚。 */
   const freeGb = os.freemem() / 1024 / 1024 / 1024;
   if (freeGb < 4) {
+    const stale = staleJavaProcesses();
+    const staleText = stale.length
+      ? `\n另外检测到 ${stale.length} 个占内存的 java 进程（多半是上次编译崩掉后没退出的）：\n`
+        + stale.map((p) => `  PID ${p.pid} · 占 ${(p.memKb / 1024 / 1024).toFixed(1)} GB`).join('\n')
+        + '\n把它们结束掉能立刻腾出内存：任务管理器里结束 java.exe，'
+        + '或命令行执行 taskkill /PID <上面的 PID> /F。\n'
+      : '';
     return {
       ok: false,
       out: `可用内存只有 ${freeGb.toFixed(1)} GB，先不开编译了。\n`
         + 'NeoForge 第一次编译要把整个 Minecraft 反编译一遍，至少需要 4-5 GB 空闲内存，\n'
-        + '不然 JVM 会直接崩（不是代码问题）。\n\n'
-        + '请先关掉浏览器、游戏、IDE 等占内存的程序，然后重新点编译。\n'
+        + '不然 JVM 会直接崩（不是代码问题）。\n'
+        + staleText
+        + '\n请先关掉浏览器、游戏、IDE 等占内存的程序，然后重新点编译。\n'
         + '（Gradle 和依赖已经下好了，第二次会快很多。）',
     };
   }
@@ -2126,6 +2134,32 @@ function anyProjectHasWrapper() {
   }
 }
 
+/* ---------------- 残留的编译进程 ----------------
+ * Gradle daemon / 反编译进程在 JVM 崩掉时不会自己退出，会一直挂着几百 MB
+ * 到几 GB 内存（实测撞见过一个占 4.4 GB 的），下次编译就没内存了。
+ * 这里只负责列出来，杀不杀由用户决定。 */
+function staleJavaProcesses() {
+  if (process.platform !== 'win32') return [];
+  try {
+    const out = execSync('tasklist /FI "IMAGENAME eq java.exe" /FO CSV /NH', {
+      encoding: 'utf8',
+      timeout: 10000,
+      windowsHide: true,
+    });
+    return out.trim().split('\n')
+      .filter((line) => line.trim())
+      .map((line) => {
+        const cols = line.split('","');
+        const pid = String(cols[1] || '').replace(/"/g, '').trim();
+        const memKb = Number(String(cols[4] || '').replace(/[^0-9]/g, '')) || 0;
+        return { pid, memKb };
+      })
+      .filter((p) => p.pid && p.memKb > 200 * 1024); // 只看超过 200MB 的
+  } catch {
+    return [];
+  }
+}
+
 /* ---------------- JDK 检测 ----------------
  * NeoForge 1.21 要 JDK 21。但机器上 PATH 里的 java 未必是 21
  * （实测主人这台 PATH 是 17，jdk-21 其实装在 Program Files 里，只是没进 PATH），
@@ -2364,12 +2398,18 @@ async function setupBuildEnv(root, cfg) {
   }
 
   // 4) 顺手看一眼当前可用内存
-  const freeGb = os.totalmem ? os.freemem() / 1024 / 1024 / 1024 : 0;
-  if (freeGb && freeGb < 6) {
+  const freeGb = os.freemem() / 1024 / 1024 / 1024;
+  if (freeGb < 6) {
+    const stale = staleJavaProcesses();
+    const staleText = stale.length
+      ? `；另有 ${stale.length} 个 java 进程占着 `
+        + `${(stale.reduce((s, p) => s + p.memKb, 0) / 1024 / 1024).toFixed(1)} GB`
+        + `（PID ${stale.map((p) => p.pid).join(', ')}，多半是上次编译崩溃残留）`
+      : '';
     steps.push({
       ok: false,
-      text: `当前只剩 ${freeGb.toFixed(1)} GB 可用内存。反编译 Minecraft 至少要 4-5 GB，`
-        + '建议先关掉浏览器等占内存的程序再编译。',
+      text: `当前只剩 ${freeGb.toFixed(1)} GB 可用内存${staleText}。`
+        + '反编译 Minecraft 至少要 4-5 GB，建议先关掉浏览器等占内存的程序再编译。',
     });
   }
 
