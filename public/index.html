@@ -213,6 +213,18 @@
                   </div>
 
                   <span class="grow"></span>
+                  <div class="composer-model-switch" id="buildEnv" title="构建环境">
+                    <button class="model-switch-trigger" type="button" aria-expanded="false"
+                            aria-label="构建环境">
+                      <i aria-hidden="true">🔨</i><span>构建</span>
+                      <small class="model-switch-current" id="buildEnvState">检测中</small>
+                    </button>
+                    <div class="model-switch-menu" id="buildEnvMenu" hidden>
+                      <button type="button" id="buildEnvCompile">编译当前工程的 jar</button>
+                      <button type="button" id="buildEnvSettings">去设置 Gradle 路径</button>
+                      <small class="build-env-note" id="buildEnvNote"></small>
+                    </div>
+                  </div>
                   <div class="composer-model-switch" id="ctxSwitch">
                     <button class="model-switch-trigger" type="button" aria-expanded="false"
                             aria-label="选择上下文长度">

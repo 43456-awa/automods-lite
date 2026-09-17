@@ -262,6 +262,7 @@
     store.set('entered', true);
     loadChats().catch(() => {});
     refreshUsage();
+    refreshBuildEnv();
     if (first) maybeOnboard();
     if (!state.chatId) newDraft();
   }
@@ -1118,6 +1119,29 @@
 
   /* ------------------------------------------------------------ 用量 */
 
+  /** 输入栏里的构建环境徽章：拉 /api/env 后把 gradle 状态打上去 */
+  async function refreshBuildEnv() {
+    try {
+      const env = await api('/api/env');
+      state.env = env;
+      const g = env.gradle || {};
+      const label = $('buildEnvState');
+      const note = $('buildEnvNote');
+      if (g.ok) {
+        label.textContent = g.name || '就绪';
+        label.title = `系统 gradle: ${g.system ? '✓' : '×'} · 工程 gradlew: ${g.wrapper ? '✓' : '×'}`;
+        label.classList.remove('bad', 'warn');
+        label.classList.add('ok');
+      } else {
+        label.textContent = '未就绪';
+        label.title = '工程里没有 gradlew，也未指定本机 gradle 路径';
+        label.classList.remove('ok', 'warn');
+        label.classList.add('bad');
+      }
+      if (note) note.textContent = `Node ${env.node} · ${env.platform}`;
+    } catch (e) { /* 静默 */ }
+  }
+
   async function refreshUsage() {
     try {
       const data = await api('/api/usage');
@@ -1969,14 +1993,32 @@
       draft.ctxLimit = Number(id) || 24;
       store.set('ctxLimit', draft.ctxLimit);
       document.querySelector('#ctxSwitch .model-switch-current').textContent = `${draft.ctxLimit} 条`;
-      $('ctxText').textContent = `上下文 0 / ${draft.ctxLimit} 条`;
+      // 改完之后立刻让 ctxText / 用量详情用新值（之前写死 0 / 选中的限制，
+      // 选完连本会话已经累积的消息数都没重新算，看着像"没变"）
       try {
         state.cfg = await api('/api/config', {
           method: 'POST', body: JSON.stringify({ historyLimit: draft.ctxLimit }),
         });
-        toast('上下文条数已改', 'good');
       } catch { /* 静默 */ }
+      refreshUsage();
+      // 同时让用量详情弹窗的容量跟着刷新
+      api(`/api/context?chatId=${encodeURIComponent(state.chatId || '')}`)
+        .then(paintUsage).catch(() => {});
+      toast('上下文条数已改', 'good');
     });
+
+    // 构建环境徽章：菜单里可以直接编译或跳设置
+    $('buildEnvCompile').onclick = () => {
+      document.querySelector('#buildEnv .model-switch-menu').hidden = true;
+      $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
+      buildJar();
+    };
+    $('buildEnvSettings').onclick = () => {
+      document.querySelector('#buildEnv .model-switch-menu').hidden = true;
+      $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
+      openSettings();
+      toast('往下滚到 Gradle 命令那行', 'good');
+    };
 
     // 弹窗
     $('setupCancel').onclick = () => closeModal('setupDialog');
