@@ -137,6 +137,9 @@
     project: '',
     title: '对话制作',
     running: false,
+    // 本轮是否已经收过尾。run_end 事件和「流关闭」都会触发收尾，
+    // 只认第一次，否则会重复刷资产栏 / 重复拉对话列表
+    finished: false,
     abort: null,
     // 一轮之内的渲染句柄
     work: null,
@@ -643,6 +646,7 @@
     state.thinkEntry = null;
     state.thinkText = '';
     state.pendingTool = new Map();
+    state.finished = false;
     setRunState('制作中', true);
 
     /* 先摆一张「正在制作」的卡再发请求。
@@ -704,6 +708,9 @@
   }
 
   function finishRun() {
+    // 幂等：run_end 事件和「流关闭」两条路都会走到这里，只收尾一次
+    if (state.finished) return;
+    state.finished = true;
     closeThink();
     setRunState('空闲', false);
     updateBlank(); // 这一轮结束了，资产栏按「有对话」的状态摆
@@ -846,6 +853,12 @@
         break;
 
       case 'run_end':
+        /* 服务端收尾事件。以前这里是空的（`break`），前端只靠「HTTP 流关闭」
+         * 来收尾；而服务端压根没调 res.end()，连接靠 keep-alive 一直挂着，
+         * 于是 run_end 之后界面永远停在「制作中」、发送键一直是灰的，
+         * 必须刷新页面才能继续。现在收到 run_end 就当场收尾，
+         * 紧跟其后的 files / memory_status 照常处理。 */
+        finishRun();
         break;
 
       default:

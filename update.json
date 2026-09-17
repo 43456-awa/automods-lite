@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
-  "notes": "编译链路打通（产出可用 jar）+ 贴图工坊（SenseNova 生图，含图生图与全量参数）+ 预览台可点开详情 + 上下文长度改 256K/1M + 侧栏归档重命名 + 上下文用量弹窗。修掉 spawn EINVAL（编译从来跑不通的根因）、neo_version 编造、gradlew.bat 吞退出码、中文名显示成英文、MC 1.21 配方 key 解析失败等。",
+  "version": "0.5.1",
+  "notes": "修掉「任务跑完发送键还是灰的、必须刷新页面」——根因是服务端 /api/chat 写完 SSE 响应头后从来不 res.end()，连接靠 keep-alive 一直挂着，而前端只在读到「流结束」时才收尾，于是 run_end 之后界面永远停在「制作中」。现在服务端收尾显式关流，前端收到 run_end 也当场收尾（双保险）。顺手修掉启动日志里写死的 v0.4。新增 tools/check-stream.mjs 回归检查。",
   "minNode": 18
 }

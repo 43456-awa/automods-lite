@@ -4,7 +4,7 @@
 仓库：https://github.com/43456-awa/automods-lite  
 本地路径：`C:\Users\a1390\Claude Code\automods-lite`  
 已推送版本：**v0.5.0**（最新提交 `1d364e7`）  
-⚠️ 线上分享链接跑的仍是 **v0.4.0**，见 3.5
+线上分享链接：**已于 2026-09-17 重新发布，同步到 v0.5.0**（见 3.5）
 
 **先读这三节**：3.5 线上发布（含密钥脱敏流程）→ 3.8 编译环境 → 3.10 前端实时渲染。
 
@@ -134,21 +134,34 @@ workbuddy_sites_deploy {
   与 NeoForge 依赖缓存，所以真正编译 NeoForge 模组仍可能失败。
 - 线上没有主人的 API Key（`apiKeySet: false`），**访客要自己到设置里填**才能对话。
 
-### ⚠️ 线上当前落后于仓库（重要）
+### 线上状态：已同步（2026-09-17）
 
-**线上跑的仍是 `0.4.0`**（最后发布于 `518aefb`）。之后这一批都没上线：
+**线上已跑 `0.5.0`**（sandboxId 未变，分享链接不变）。v0.5.0 那一批修复全部生效：
 
-| 未上线的修复 | 影响 |
+| 已上线的修复 | 效果 |
 |---|---|
-| `00a3ecc` 对话区空白 | **朋友遇到的问题就是这个**：任务开头几十秒对话区一片空白，得切出去再进来 |
-| `911f8cf` 立即更新按钮 | 线上弹窗只有「打开仓库 / 知道了」 |
-| 编译环境一键准备 + 6 个坑的修复 | 线上点编译必失败 |
-| `bd6a738` 版本号 0.5.0 | 线上 `/api/health` 仍返回 `0.4.0` |
+| `00a3ecc` 对话区空白 | **朋友遇到的问题已解决**：一开工就出现「正在制作 · 正在连接模型…」 |
+| `911f8cf` 立即更新按钮 | 线上弹窗已有「立即更新」 |
+| 编译环境一键准备 + 6 个坑的修复 | 线上可走「⚡ 一键准备构建环境」 |
+| `bd6a738` 版本号 0.5.0 | `/api/health` 返回 `0.5.0` |
 
 判断线上新旧的最快方法：`curl <link>/api/health` 看 `version`，
-或 `curl <link>/app.js | grep -c 正在连接模型`（0 = 旧版）。
+或 `curl <link>/app.js | grep -c 正在连接模型`（0 = 旧版，1 = 已同步）。
 
-**发布是把当前工作区整包上传**，所以只要重新发布，线上就会带上最新代码。
+> **提醒**：`push` 不等于上线。发布是把当前工作区**整包重新上传**，
+> 跟 git 是两条路 —— v0.5.0 早就 push 了，但线上一直停在 0.4.0，
+> 直到 9-17 手动重新发布才同步。**改完代码记得单独发布一次。**
+
+### ⚠️ 公开链接会连私有数据一起传上去（未解决）
+
+发布工具只排除 `node_modules` / `.git` / 构建产物，**不读 `.gitignore`**。
+实测线上 `curl <link>/api/chats` 能直接列出全部对话（含标题、消息数），
+`curl <link>/api/memory` 能读到记忆条目 —— 也就是**任何拿到链接的人都能翻主人的对话与记忆**。
+
+发布前必查的密钥只是其中一项，`chats/` / `memory.json` / `memory-store.json`
+同样是私有数据，目前没有做隔离。后续可做：给这几个接口加鉴权，
+或发布时把 `chats/` 换成空目录（`workspace/` 同理，但注意 80 M 里
+`build/` 会被自动排除，真正上传的只有约 600 K）。
 
 ---
 
@@ -318,6 +331,78 @@ case 'status':
 
 ---
 
+## 3.12 SSE 流从来不关：发送键卡灰（2026-09-17 修）
+
+**现象**（主人报的）：任务跑完（哪怕是报错结束），右下角**发送键一直是灰的**，
+鼠标悬停提示「这一轮还在跑」，顶栏一直显示「制作中」+ 停止键，
+**必须刷新页面**才能继续发消息。和 3.10 那个「对话区空白」是两个不同的 bug。
+
+### 根因：服务端写了 SSE 响应头，却从来不 `res.end()`
+
+```js
+// server.js —— /api/chat 旧写法
+const emit = (obj) => { try { sseSend(res, obj); } catch {} };
+runAgent(chat, emit).catch((e) => {
+  sseSend(res, { k: 'error', text: String(e.message || e) });
+  sseSend(res, { k: 'run_end' });
+});
+return;                       // ← 就撒手了，没人关流
+```
+
+`sseOpen()` 写了 `Content-Type: text/event-stream` + `Connection: keep-alive`
+之后只 `res.write()`，**全文件 10 处 `res.end()` 没有一处在 `/api/chat` 这条流里**。
+而前端 `runChat()` 的读取循环**只在读到 `done` 时跳出**，
+`case 'run_end': break;` 是空实现 —— 两端都以为对方会收尾，结果谁都没收。
+
+刷新能好，是因为重载后 `state.running` 默认 false，且服务端 `chat.busy`
+已在 `runAgent` 的 finally 里置回 false，所以刷新后能正常发。
+
+### 实测复现（改之前）
+
+`node tools/check-stream.mjs http://127.0.0.1:8787`：
+
+```
+[0.1s] run_end 收到
+[0.1s] files 收到
+[20.3s] 连接已关闭 : false        ← 20 秒都不关
+结论：❌ 复现成功
+```
+
+用无头 Chrome 走 `?autosend=` 看真实界面，任务报错后 **40 秒**仍是
+`runState=制作中, sendDisabled=true`；修好之后同样场景 **2 秒**内变成
+`runState=空闲, sendDisabled=false`。
+
+### 修法（两边都补）
+
+1. **server.js**：`runAgent(...)` 后面接 `.finally(() => { streamClosed = true; res.end(); })`，
+   并给 `emit` 加关流标记（`res.end()` 之后再 `write` 会抛
+   `ERR_STREAM_WRITE_AFTER_END`，而 `runAgent` 的 finally 里还挂着不 await 的
+   `autoSummarizeMemory`，它可能比流关得晚）。
+2. **public/app.js**：`case 'run_end'` 从空实现改成调 `finishRun()`，
+   不再只依赖「流关闭」这一条路；`finishRun()` 加 `state.finished` 幂等保护
+   （`run_end` 和流关闭都会触发，只认第一次）。
+
+### 顺手修的
+
+`server.js` 启动日志硬编码着 `automods-lite v0.4`，改版本号也永远显示 v0.4 ——
+改成读 `LOCAL_VERSION`。判断版本别信这行日志。
+
+### 新增工具
+
+`tools/check-stream.mjs` —— 回归检查，断言 `run_end` 之后流会关。
+退出码 `0` 通过 / `1` 回归 / `2` 没等到 run_end。需要服务已在跑：
+
+```powershell
+node tools/check-stream.mjs            # 默认 127.0.0.1:8787
+```
+
+### 教训
+
+**SSE 这种「长连接 + 单次任务」的接口，收尾必须显式关流，不能指望连接自己断。**
+两端各自以为对方会收尾，就是这种「界面永远转圈、刷新才好」的经典成因。
+
+---
+
 ## 4. 关键配置（config.json）
 
 当前本机示例（勿提交到 git）：
@@ -391,8 +476,9 @@ automods-lite/
 
 ## 6. 已知限制 / 后续可做
 
-1. **线上落后于仓库**（见 3.5）——线上仍是 `0.4.0`，本批修复没上线。这是当前
-   最该处理的一条：朋友遇到的问题（对话区空白）就是因为线上没同步
+1. **公开链接暴露私有数据**（见 3.5）——`/api/chats`、`/api/memory` 无鉴权，
+   拿到链接就能翻对话与记忆。**这是当前最该处理的一条**，比功能问题优先。
+   线上版本已同步到 `0.5.0`，不再是问题
 2. 无真正的本地「语义压缩」；靠 tool 回执瘦身 + token 预算截断（contextLength 256K/1M）
 3. 编译 jar 依赖本机 Gradle/`gradlew`；**超时要设 1500**（默认值偏小，
    第一次反编译 Minecraft 180 秒必超）
@@ -432,12 +518,23 @@ node boot.js
   服务启动时才读版本，改完不重启仍显示旧值）
 - 8787 是否被旧进程占用（`netstat -ano | findstr 8787`）
 - 前端行为异常时，先 `Ctrl+Shift+R` 强刷（静态文件是 `no-cache`，但浏览器仍可能留旧 JS）
+- **发送键变灰 / 一直显示「制作中」**：先跑 `node tools/check-stream.mjs`；
+  退出码 1 就是 3.12 那个流没收尾的回归
+- 改过 `server.js` 后**必须重启服务**（`启动.bat` / `node boot.js`），
+  改过 `public/app.js` 后**必须强刷浏览器**，否则看到的还是旧行为
 
 **冒烟一次**
 
 ```powershell
 node tools/smoke.mjs "加一个会发光的方块"
 # 看到 files / run_end 即通过；脚本收到 files 后主动退出
+```
+
+**查流收尾有没有回归**（3.12 那个 bug）
+
+```powershell
+node tools/check-stream.mjs
+# 退出码 0 = 流正常关；1 = 回归（发送键会卡灰）；2 = 服务没在跑
 ```
 
 **推新版本**
@@ -484,6 +581,7 @@ git -c http.proxy=http://127.0.0.1:10808 -c https.proxy=http://127.0.0.1:10808 p
 | 更新入口（给别人的副本） | `update.bat` → `tools/update-core.ps1` |
 | 启动 | `boot.js` / `启动.bat` / `start.bat` |
 | 冒烟脚本 | `tools/smoke.mjs` |
+| 流收尾回归检查 | `tools/check-stream.mjs` |
 | 生图接口探测 | `tools/probe-image.mjs` |
 | 远端版本清单 | `update.json` |
 

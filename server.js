@@ -2895,13 +2895,28 @@ const server = http.createServer(async (req, res) => {
       });
       sseSend(res, { k: 'user_echo', text });
 
+      /* 关流标记：res.end() 之后再 write 会抛 ERR_STREAM_WRITE_AFTER_END，
+       * 收尾之后 emit 直接丢弃，别让它冒到进程上（runAgent 的 finally 里
+       * 还挂着不 await 的 autoSummarizeMemory，它可能比流关得晚）。 */
+      let streamClosed = false;
       const emit = (obj) => {
+        if (streamClosed) return;
         try { sseSend(res, obj); } catch { /* client gone */ }
       };
-      runAgent(chat, emit).catch((e) => {
-        sseSend(res, { k: 'error', text: String(e.message || e) });
-        sseSend(res, { k: 'run_end' });
-      });
+      runAgent(chat, emit)
+        .catch((e) => {
+          emit({ k: 'error', text: String(e.message || e) });
+          emit({ k: 'run_end' });
+        })
+        /* 以前这里漏了 res.end()：响应头写成 text/event-stream 就撒手，
+         * 连接靠 keep-alive 一直挂着。前端只在读到流结束（done）时才
+         * finishRun()，于是 run_end 之后界面永远停在「制作中」、发送键
+         * 一直是灰的，必须刷新页面才恢复 —— 主人报的「失败了但发送是灰的」
+         * 就是这个。收尾一律关流。 */
+        .finally(() => {
+          streamClosed = true;
+          try { res.end(); } catch { /* 已经断了 */ }
+        });
       return;
     }
 
@@ -3138,7 +3153,7 @@ const server = http.createServer(async (req, res) => {
 const HOST = process.env.HOST || '0.0.0.0';
 server.listen(PORT, HOST, () => {
   const shown = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
-  console.log(`automods-lite v0.4 → http://${shown}:${PORT}`);
+  console.log(`automods-lite v${LOCAL_VERSION} → http://${shown}:${PORT}`);
   console.log(`工程根: ${PROJECTS}`);
   console.log(`配置: ${CONFIG_PATH}${fs.existsSync(CONFIG_PATH) ? '' : '（可到页面设置里填写）'}`);
 });
