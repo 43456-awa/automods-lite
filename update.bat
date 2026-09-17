@@ -14,18 +14,39 @@ echo     usage.json    用量统计
 echo ============================================
 echo.
 
+set "REPO=43456-awa/automods-lite"
+set "BRANCH=main"
+
+rem update.ps1 是真正干活的脚本。老版本里没有这个文件，
+rem 所以这里先自己把它拉下来（jsDelivr 国内一般能直连）。
 if not exist "update.ps1" (
-  echo [错误] 找不到 update.ps1。
-  echo        它和 update.bat 必须放在同一个目录里。
-  echo        重新从 GitHub 下完整 ZIP 解压覆盖一次即可。
+  echo 第一次运行，先取更新脚本 update.ps1 ...
+  where curl.exe >nul 2>nul
+  if errorlevel 1 (
+    echo [错误] 系统里没有 curl.exe（Windows 10 1803 以上自带）。
+    echo        手动打开下面这个地址，把内容另存为 update.ps1 放在本目录：
+    echo        https://raw.githubusercontent.com/%REPO%/%BRANCH%/update.ps1
+    echo.
+    pause
+    exit /b 1
+  )
+  curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "update.ps1" "https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/update.ps1"
+  if not exist "update.ps1" (
+    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "update.ps1" "https://raw.githubusercontent.com/%REPO%/%BRANCH%/update.ps1"
+  )
+  if not exist "update.ps1" (
+    echo [错误] 下不到 update.ps1，检查网络或开代理后重试。
+    echo.
+    pause
+    exit /b 1
+  )
+  echo   取到了。
   echo.
-  pause
-  exit /b 1
 )
 
 where powershell >nul 2>nul
 if errorlevel 1 (
-  echo [错误] 找不到 PowerShell（Windows 自带，正常不该缺）。
+  echo [错误] 找不到 powershell（Windows 自带，正常不该缺）。
   echo.
   pause
   exit /b 1
