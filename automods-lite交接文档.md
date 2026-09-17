@@ -102,19 +102,48 @@ v0.5.0 期间的提交（`faa0c5c` → `1d364e7`）：
 **分享链接**：https://d1d1030d61b04e28bdf2507b97874763.sg2.agentos-app.run
 （sandboxId `d1d1030d61b04e28bdf2507b97874763`，`deployedAs: http-service`）
 
-### ⚠️ 每次发布前必做：摘掉密钥
+### ⚠️⚠️ 每次发布前必做：摘掉密钥 + 挪走私有数据（已有脚本）
 
-发布是把整个目录压缩上传，而 `config.json` 里有真实 apiKey。流程：
+发布是把整个目录压缩上传，而 `config.json` 里有真实 apiKey。更糟的是
+**这样一传，`chats/`（对话记录）和 `memory*.json`（记忆）也会一起上线** ——
+实测线上 `curl <link>/api/chats` 能列出全部对话、`/api/memory` 能读到记忆条目。
 
-1. `cp config.json <项目外>/config-loclbak.json` —— **备份必须挪出项目目录**。
-   发布工具只排除 `node_modules` / `.git` / build output，`config.json.loclbak`
-   这种留在原地照样会被传上去。
-2. 写一份 `apiKey` / `imageApiKey` 为空的 config.json
-3. 还要清 `config.json.bak-*`（`saveConfig` 留的自动备份，里面同样有 key）
-4. 扫干净：`grep -rlE "sk-[A-Za-z0-9]{16,}" . --exclude-dir=node_modules --exclude-dir=.git` 为空
-5. 发布
-6. **立刻 `mv` 回 config.json**，断言 key 前缀还在
-7. 线上自检：`curl <link>/api/config` 的 `apiKeySet` 必须是 `false`
+流程（用脚本，别手做，步骤太多容易漏）：
+
+```powershell
+node tools/publish-prepare.mjs     # 挪走私有数据 + 写脱敏 config（带 shareMode）
+# 发布（见下面的发布命令）
+node tools/publish-restore.mjs     # 发完立刻跑，把数据搬回来
+```
+
+`publish-prepare.mjs` 会做四件事并自检：
+
+1. 把 `chats/` / `memory.json` / `memory-store.json` / `usage.json`
+   以及 `config.json.bak-*`（`saveConfig` 留的自动备份，里面也有 key）
+   挪进**项目目录外**的 `.automods-publish-stash/<时间戳>/`
+   —— 留在项目里照样会被传上去
+2. 备份 `config.json`，写一份 `apiKey` / `imageApiKey` 为空、**`shareMode: true`** 的
+3. 全目录扫 `sk-[A-Za-z0-9]{16,}`，必须干净
+4. 全部通过后打印 ✅；有问题退出码 1，**别发布**
+
+`publish-restore.mjs` 搬回来时会：目录**逐项合并**（暂存期服务若被起过、
+`chats/` 被重新生成，主人那份仍会并回去，不会被顶成 `chats.restored-xxx`）；
+文件以「主人原件」占主路径，暂存期产生的挪成 `<名>.shared-<时间戳>` 可自行删除。
+还会断言 `apiKey` 前缀回来了、`shareMode` 已复位成 `false`。
+
+**为什么还要 `shareMode`**：数据一旦传上去，重新发布也删不掉旧文件。
+`shareMode: true` 会让服务端把 `/api/chats`、`/api/memory`、`/api/usage`、
+`/api/context` 直接挡成 403（`/api/chat`、`/api/env`、`/api/bench` 仍放行，
+访客照样能填自己的 key 开新对话）。这是**接口层的第二道保险** ——
+哪天忘了挪文件，也不会把本机数据吐出去。本机自用保持 `false`。
+
+### 发布后自检
+
+```bash
+curl <link>/api/health                    # version 必须是新版本
+curl <link>/api/config                    # apiKeySet=false、shareModeActive=true
+curl -o /dev/null -w "%{http_code}" <link>/api/chats    # 必须是 403
+```
 
 ### 发布命令
 
@@ -152,16 +181,23 @@ workbuddy_sites_deploy {
 > 跟 git 是两条路 —— v0.5.0 早就 push 了，但线上一直停在 0.4.0，
 > 直到 9-17 手动重新发布才同步。**改完代码记得单独发布一次。**
 
-### ⚠️ 公开链接会连私有数据一起传上去（未解决）
+### 公开链接会连私有数据一起传上去（已缓解）
 
 发布工具只排除 `node_modules` / `.git` / 构建产物，**不读 `.gitignore`**。
 实测线上 `curl <link>/api/chats` 能直接列出全部对话（含标题、消息数），
 `curl <link>/api/memory` 能读到记忆条目 —— 也就是**任何拿到链接的人都能翻主人的对话与记忆**。
 
-发布前必查的密钥只是其中一项，`chats/` / `memory.json` / `memory-store.json`
-同样是私有数据，目前没有做隔离。后续可做：给这几个接口加鉴权，
-或发布时把 `chats/` 换成空目录（`workspace/` 同理，但注意 80 M 里
-`build/` 会被自动排除，真正上传的只有约 600 K）。
+**已做的两层防护（0.5.1 起）**：① `tools/publish-prepare.mjs` 在发布前
+把这些文件挪出项目目录；② `config.shareMode` 在接口层把私有 API 挡成 403。
+实测分享模式下 `/api/chats`、`/api/memory`、`/api/usage`、`/api/context` 全 403，
+而 `/api/chat`、`/api/env`、`/api/bench`、`/api/health` 照常放行。
+
+> 注意：**已经传上去的文件删不掉**，所以线上那份老数据要靠 `shareMode` 挡。
+> 发布后务必按上面「发布后自检」验一遍 `/api/chats` 是 403。
+>
+> `workspace/`（主人的模组工程）目前仍会上传且可下载 —— 资源共享是刻意的
+> （访客才有样例可看），但要是哪天不想给，就把 `workspace/projects/`
+> 也加进 `publish-prepare.mjs` 的 `PRIVATE` 列表。
 
 ---
 
@@ -512,9 +548,10 @@ automods-lite/
 
 ## 6. 已知限制 / 后续可做
 
-1. **公开链接暴露私有数据**（见 3.5）——`/api/chats`、`/api/memory` 无鉴权，
-   拿到链接就能翻对话与记忆。**这是当前最该处理的一条**，比功能问题优先。
-   线上版本已同步到 `0.5.0`，不再是问题
+1. **线上落后于仓库** —— 线上还是 `0.5.0`，`0.5.1`（发送键卡灰的修复 +
+   分享模式）还没发布。**这是当前最该处理的一条**：跑一遍
+   `node tools/publish-prepare.mjs` → 发布 → `node tools/publish-restore.mjs` 即可
+   （顺带会把线上私有接口关掉，见 3.5）
 2. 无真正的本地「语义压缩」；靠 tool 回执瘦身 + token 预算截断（contextLength 256K/1M）
 3. 编译 jar 依赖本机 Gradle/`gradlew`；**超时要设 1500**（默认值偏小，
    第一次反编译 Minecraft 180 秒必超）
@@ -624,6 +661,8 @@ git -c http.proxy=http://127.0.0.1:10808 -c https.proxy=http://127.0.0.1:10808 p
 | 启动 | `boot.js` / `启动.bat` / `start.bat` |
 | 冒烟脚本 | `tools/smoke.mjs` |
 | 流收尾回归检查 | `tools/check-stream.mjs` |
+| 发布前摘除私有数据 | `tools/publish-prepare.mjs` |
+| 发布后还原私有数据 | `tools/publish-restore.mjs` |
 | 生图接口探测 | `tools/probe-image.mjs` |
 | 远端版本清单 | `update.json` |
 

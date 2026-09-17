@@ -81,6 +81,10 @@ const DEFAULT_CONFIG = {
   imagePromptExtend: true,
   // 存进工程前缩到多少像素（0 = 不缩放，直接存原图）
   imageScale: 64,
+  /* 分享模式：发布到公开链接时置 true —— 会关掉 /api/chats、/api/memory、
+   * /api/usage、/api/context 这些本机私有接口。本机自用保持 false。
+   * 用 tools/publish-prepare.mjs 发布时会自动写上 true。 */
+  shareMode: false,
   port: PORT,
 };
 
@@ -91,6 +95,21 @@ const LOCAL_VERSION = (() => {
     return '0.0.0';
   }
 })();
+
+/* 分享模式：发布到公开链接时把本机私有接口关掉，详见 router 里那段注释。
+ * 启动时读一次，改了要重启才生效。 */
+const SHARE_MODE = (() => {
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8').replace(/^﻿/, '');
+    return JSON.parse(raw).shareMode === true;
+  } catch {
+    return false;
+  }
+})();
+
+/* 只挡「本机私有数据」这一类。注意 /api/chat（单数，发消息）不在里面 ——
+ * 访客仍要能自己填 key 后开新对话。 */
+const PRIVATE_API = /^\/api\/(chats(\/|$)|memory(\/|$)|usage$|context$)/;
 
 function loadConfig() {
   const readOnce = () => {
@@ -126,6 +145,8 @@ function maskConfig(cfg) {
   return {
     ...rest,
     localVersion: LOCAL_VERSION,
+    // 分享模式下私有接口被关掉了，自检时一眼能看出来
+    shareModeActive: SHARE_MODE,
     apiKeySet: Boolean(apiKey && !apiKey.startsWith('sk-在这里')),
     apiKeyHint: apiKey ? `${apiKey.slice(0, 6)}…${apiKey.slice(-4)}` : '',
   };
@@ -2484,6 +2505,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
+
+    /* 分享模式（config.shareMode = true）—— 发布到公开链接时才开。
+     * 发布工具只排除 node_modules / .git / 构建产物，**不读 .gitignore**，
+     * 所以 chats/ 的对话记录、memory*.json 的记忆、usage.json 的用量都会
+     * 被整包传上去（实测线上 curl <link>/api/chats 能列出全部对话、
+     * /api/memory 能读到记忆条目）。文件一旦传上去，重新发布也删不掉，
+     * 所以必须在接口层挡住。本机自用保持默认 false。 */
+    if (SHARE_MODE && PRIVATE_API.test(p)) {
+      return json(res, 403, { error: '分享模式下不提供本机数据' });
+    }
 
     if (p === '/api/health') {
       json(res, 200, { ok: true, workspace: WORKSPACE, version: LOCAL_VERSION });
