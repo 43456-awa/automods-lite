@@ -228,6 +228,11 @@
         setTimeout(() => openUsageDetail(), 600);
       }
 
+      /* ?update=1 直接弹一次「检查更新」，方便看新版提示长什么样 */
+      if (location.search.includes('update=1')) {
+        setTimeout(() => checkUpdate(), 1500);
+      }
+
       /* ?autosend=<文本> —— 加载完自动发一句，用来复现「内容是否实时渲染」。
        * 调试用，正常访问不会触发。没有项目时顺手把构建配置弹窗也确认掉。 */
       const auto = new URLSearchParams(location.search).get('autosend');
@@ -2005,6 +2010,12 @@
     $('announcementTone').textContent = '本机提示';
     $('announcementTitle').textContent = title;
     $('announcementContent').innerHTML = html;
+    // 「立即更新」只有检查到新版本时才露出来
+    const upd = $('announcementUpdate');
+    upd.hidden = true;
+    upd.disabled = false;
+    upd.textContent = '立即更新';
+    upd.onclick = null;
     const a = $('announcementLink');
     if (link) {
       a.href = link;
@@ -2025,7 +2036,12 @@
         openAnnouncement(`有新版本 ${data.remote}`,
           `本机是 <b>${esc(data.local)}</b>，远端是 <b>${esc(data.remote)}</b>。<br /><br />${esc(notes)}`,
           `https://github.com/${data.repo}`);
-        $('announcementConfirm').textContent = '知道了';
+        // 之前这里只有「打开仓库」和「知道了」—— 明明后端有 /api/update/apply，
+        // 前端却一次都没调过，等于告诉人有新版却不给更新的路
+        const upd = $('announcementUpdate');
+        upd.hidden = false;
+        upd.onclick = () => applyUpdate(data.repo, data.remote);
+        $('announcementConfirm').textContent = '以后再说';
       } else {
         openAnnouncement(`已经是最新（${data.local}）`,
           `远端也是 <b>${esc(data.remote)}</b>，不用更新。<br /><br />${esc(notes)}`,
@@ -2033,6 +2049,42 @@
       }
     } catch (e) {
       toast(e.message || '查不到远端版本', 'bad');
+    }
+  }
+
+  /** 真的去拉 GitHub 上的新代码 */
+  async function applyUpdate(repo, remote) {
+    const btn = $('announcementUpdate');
+    btn.disabled = true;
+    btn.textContent = '更新中…';
+    try {
+      const r = await api('/api/update/apply', {
+        method: 'POST',
+        body: JSON.stringify({ repo }),
+      });
+      if (!r.ok) throw new Error(r.message || '更新失败');
+      const list = (r.copied || []).map((c) => `<li><code>${esc(c)}</code></li>`).join('');
+      const skipped = (r.skipped || []).length
+        ? `<p>这些文件远端没有、保持原样：${r.skipped.map((s) => `<code>${esc(s)}</code>`).join('、')}</p>`
+        : '';
+      $('announcementTitle').textContent = '更新完成';
+      $('announcementTone').textContent = '本机提示';
+      $('announcementContent').innerHTML = `
+        <p>代码已经拉到 <b>${esc(remote || '最新版')}</b>。</p>
+        <p><b>要重启服务才生效</b>：关掉这个窗口，重新双击「启动.bat」。</p>
+        <p>（正在运行的文件如果被占用，会先落成 <code>.pending.js</code>，
+           下次启动由 boot.js 自动替换 —— 所以务必用 启动.bat / node boot.js 启动，
+           直接 node server.js 不会做这步替换。）</p>
+        ${list ? `<p>这次更新的文件：</p><ul>${list}</ul>` : ''}
+        ${skipped}
+      `;
+      btn.hidden = true;
+      $('announcementConfirm').textContent = '知道了';
+      toast('更新完成，重启后生效', 'good');
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '立即更新';
+      toast(e.message || '更新失败', 'bad');
     }
   }
 
