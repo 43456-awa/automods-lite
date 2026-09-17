@@ -2031,7 +2031,7 @@
     $('planSwitch').onchange = (event) => {
       const on = event.target.checked;
       $('planToggle').querySelector('.ai-build-copy small').textContent =
-        on ? '开启 · 先拆创意再动手' : '关闭 · 原话直接制作';
+        on ? '先拆创意再动手' : '原话直接做';
     };
 
     // 模型切换

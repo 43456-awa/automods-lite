@@ -292,6 +292,13 @@
 
 /* ---------------- 编译日志 ---------------- */
 
+/* 资产栏头部那两个按钮（编译 Jar / 下载整包）中文比主站的英文长，
+   会被挤成两行，钉住不换行 */
+.assets-panel header .bundle-get {
+  white-space: nowrap;
+  flex: none;
+}
+
 .build-log {
   max-height: 320px;
   overflow: auto;
