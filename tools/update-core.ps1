@@ -7,7 +7,9 @@
 # 被占用的 server.js 会落成 server.pending.js，下次用 boot.js / 启动.bat 启动时自动替换。
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# 本脚本在 tools/ 下，项目根是它的上一级目录
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = Split-Path -Parent $scriptDir
 Set-Location $root
 
 $repo = '43456-awa/automods-lite'
