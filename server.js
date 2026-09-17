@@ -56,7 +56,7 @@ const DEFAULT_CONFIG = {
   historyLimit: 36,
   apiTimeoutSec: 180,
   // 上游 429/5xx 最多重试几次
-  apiRetries: 4,
+  apiRetries: 6,
   // 对话结束后自动总结制作者偏好到 memory.json
   autoMemory: true,
 
@@ -1336,7 +1336,7 @@ async function callChatCompletionsOnce(cfg, messages, opts = {}) {
   };
   if (opts.jsonMode) body.response_format = { type: 'json_object' };
 
-  const max = Math.max(0, Number(cfg.apiRetries) || 4);
+  const max = Math.max(0, Number(cfg.apiRetries) || 6);
   let attempt = 0;
   let lastErr = null;
 
@@ -1377,8 +1377,16 @@ async function callChatCompletionsOnce(cfg, messages, opts = {}) {
     const retriable = res.status === 429 || res.status >= 500 || res.status === 408;
     if (!retriable || attempt >= max) throw lastErr;
 
+    /* 退避策略：429 单独放宽。
+     * 长任务（一次几十个 write_file）很容易撞限流，而上游恢复往往要几十秒——
+     * 之前统一封顶 15 秒，四次重试加起来只等了 19 秒，基本注定失败。 */
     const ra = Number(res.headers.get('Retry-After'));
-    const wait = (ra > 0 ? ra * 1000 : Math.min(15000, 1200 * 2 ** attempt + Math.floor(Math.random() * 600)));
+    const isRate = res.status === 429;
+    const cap = isRate ? 60000 : 20000;
+    const floor = isRate ? 5000 : 1000;
+    const wait = ra > 0
+      ? Math.min(cap, ra * 1000)
+      : Math.max(floor, Math.min(cap, 1500 * 2 ** attempt + Math.floor(Math.random() * 800)));
     opts.onRetry?.({ attempt: attempt + 1, max, waitMs: wait, status: res.status });
     await sleep(wait);
     attempt += 1;
@@ -1461,7 +1469,7 @@ function normalizePlan(plan) {
 
 /** 429/5xx 自动重试；超时只约束「连上/无数据」，不约束整段思考时长 */
 async function fetchChatWithRetry(url, init, cfg, emit) {
-  const max = Math.max(0, Number(cfg.apiRetries) || 4);
+  const max = Math.max(0, Number(cfg.apiRetries) || 6);
   // 推理强度越高，上游越可能很久才回响应头/首包
   const effort = String(cfg.reasoningEffort || 'off').toLowerCase();
   const connectTimeoutSec = effort === 'max' || effort === 'xhigh' ? 180
@@ -1523,8 +1531,16 @@ async function fetchChatWithRetry(url, init, cfg, emit) {
     lastErr = new Error(`API ${res.status}: ${text.slice(0, 200)}`);
     if (attempt >= max) return res;
 
+    /* 退避策略：429 单独放宽。
+     * 长任务（一次几十个 write_file）很容易撞限流，而上游恢复往往要几十秒——
+     * 之前统一封顶 15 秒，四次重试加起来只等了 19 秒，基本注定失败。 */
     const ra = Number(res.headers.get('Retry-After'));
-    const wait = (ra > 0 ? ra * 1000 : Math.min(15000, 1200 * 2 ** attempt + Math.floor(Math.random() * 600)));
+    const isRate = res.status === 429;
+    const cap = isRate ? 60000 : 20000;
+    const floor = isRate ? 5000 : 1000;
+    const wait = ra > 0
+      ? Math.min(cap, ra * 1000)
+      : Math.max(floor, Math.min(cap, 1500 * 2 ** attempt + Math.floor(Math.random() * 800)));
     emit?.({
       k: 'status',
       text: res.status === 429
@@ -2717,8 +2733,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`automods-lite v0.2 → http://127.0.0.1:${PORT}`);
+/* 绑 0.0.0.0 是为了能发布到线上沙箱（反向代理要能从外部连进来）；
+ * 只想本机用就设 HOST=127.0.0.1。 */
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  const shown = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
+  console.log(`automods-lite v0.4 → http://${shown}:${PORT}`);
   console.log(`工程根: ${PROJECTS}`);
   console.log(`配置: ${CONFIG_PATH}${fs.existsSync(CONFIG_PATH) ? '' : '（可到页面设置里填写）'}`);
 });
