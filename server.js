@@ -3026,6 +3026,55 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    /** 上传本地贴图：base64 JSON 体（避开 multipart，省依赖）。
+     * 前端读 file → canvas 缩到 imageScale → toDataURL → 传 data 字段。 */
+    if (p === '/api/textures' && req.method === 'POST') {
+      const body = await readJson(req);
+      const project = String(body.project || '').trim();
+      const kindRaw = String(body.kind || 'item');
+      const name = String(body.name || '').trim();
+      const data = String(body.data || '');
+      if (!project) return json(res, 400, { error: '缺 project' });
+      if (!/^[a-zA-Z0-9_\-]{1,64}$/.test(name)) {
+        return json(res, 400, { error: '名字只能英文/数字/下划线/连字符，最多 64 字符' });
+      }
+      const kind = (kindRaw === 'block') ? 'block' : 'item';
+      const m = /^data:image\/(\w+);base64,(.+)$/.exec(data);
+      if (!m) return json(res, 400, { error: 'data 不是合法的图片 base64' });
+      const ext = (m[1] === 'jpeg' || m[1] === 'jpg') ? 'png' : (m[1] === 'webp' ? 'png' : m[1]);
+      let raw;
+      try { raw = Buffer.from(m[2], 'base64'); }
+      catch { return json(res, 400, { error: 'base64 解码失败' }); }
+      if (!raw.length) return json(res, 400, { error: '空数据' });
+      try {
+        const saved = await saveTexture(project, kind, name, raw, 0);
+        json(res, 200, { ok: true, ...saved, files: await listProjectFiles(project) });
+      } catch (e) {
+        json(res, 500, { error: String(e.message || e) });
+      }
+      return;
+    }
+
+    /** 删除贴图：DELETE /api/textures/:project/:kind/:name
+     * 注意只删贴图本身，模型/语言/配方里若还引用它会变成紫黑块（资源缺失）——
+     * 这是有意的，强迫主人想清楚再删，不要悄悄破坏关联文件。 */
+    if (p.startsWith('/api/textures/') && req.method === 'DELETE') {
+      const m = p.match(/^\/api\/textures\/([^/]+)\/([^/]+)\/([^/]+)$/);
+      if (!m) return json(res, 400, { error: 'bad path' });
+      const [, project, kindRaw, name] = m;
+      if (!/^[a-zA-Z0-9_\-]{1,64}$/.test(name)) {
+        return json(res, 400, { error: '名字不合法' });
+      }
+      const kind = (kindRaw === 'block') ? 'block' : 'item';
+      const root = ensureProject(project);
+      if (!root) return json(res, 400, { error: 'bad project' });
+      const filePath = path.join(root, 'src/main/resources/assets/mymod/textures', kind, `${name}.png`);
+      if (!fs.existsSync(filePath)) return json(res, 404, { error: '贴图不存在' });
+      fs.unlinkSync(filePath);
+      json(res, 200, { ok: true, deleted: path.relative(root, filePath), files: await listProjectFiles(project) });
+      return;
+    }
+
     /** 预览台：扫工程的 lang/models/textures/recipes 凑出 items/blocks/recipes 给前端摆网格 */
     if (p === '/api/bench' && req.method === 'GET') {
       const project = url.searchParams.get('project') || 'default';

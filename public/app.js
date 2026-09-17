@@ -1323,11 +1323,34 @@
         : benchButton('下载这张贴图', true, () => {
           window.location.href = dlHref(entry.icon);
         }),
+      // 已有贴图时，多出两个动作：去贴图工坊以它为模板做相似版本、或者直接删掉
+      entry.hasIcon ? benchButton('以此图生成相似', false, () => {
+        // 跳到贴图工坊，自动切到图生图模式，并把当前贴图当参考图
+        const url = `/texture.html?project=${encodeURIComponent(state.project)}&mode=edit&ref=${encodeURIComponent(dlHref(entry.icon))}`;
+        window.location.href = url;
+      }) : null,
+      entry.hasIcon ? benchButton('删除这张贴图', false, () => {
+        // 名字与所在 kind 都从 icon 路径里取，避免传错
+        const seg = (entry.icon || '').split('/');
+        const kind = seg[1] === 'block' ? 'block' : 'item';
+        const base = (seg[2] || '').replace(/\.png$/i, '');
+        if (!base) return toast('这张贴图无法定位', 'bad');
+        if (!window.confirm(`确定要删掉 ${kind}/${base}.png 吗？\n模型里若还引用它，运行时那块会变成紫黑缺资源。`)) return;
+        fetch(`/api/textures/${encodeURIComponent(state.project)}/${kind}/${encodeURIComponent(base)}`, { method: 'DELETE' })
+          .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+          .then(({ ok, j }) => {
+            if (!ok) throw new Error(j.error || '删除失败');
+            toast('已删除', 'good');
+            closeModal('benchDialog');
+            return loadAssets(true);
+          })
+          .catch((e) => toast(e.message || '删除失败', 'bad'));
+      }) : null,
       benchButton('下载整包', false, () => {
         window.location.href = `/api/zip?project=${encodeURIComponent(state.project)}`;
       }),
       benchButton('关闭', false, () => closeModal('benchDialog')),
-    ]);
+    ].filter(Boolean));
   }
 
   /** 3×3 配方网格，材料和成品都查显示名 */

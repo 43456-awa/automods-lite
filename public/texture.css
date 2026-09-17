@@ -148,6 +148,18 @@
   font-size: 14px;
 }
 
+/* 「📁 上传本地贴图」是次要动作，不抢主按钮的视觉 */
+.tex-go:not(.primary) {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  margin-top: 6px;
+}
+.tex-go:not(.primary):hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .tex-note {
   display: block;
   margin-top: 8px;
@@ -294,6 +306,45 @@
 
 .tex-chip span {
   color: var(--text-secondary);
+  flex: 1;
+}
+
+/* 「以此为参考」+ 「×」按钮：紧贴贴图名右侧，hover 才显眼 */
+.tex-chip-ref {
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.tex-chip-ref:hover {
+  opacity: 1;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.tex-chip-del {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tex-chip:hover .tex-chip-del { opacity: 0.6; }
+.tex-chip-del:hover {
+  opacity: 1 !important;
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .tex-list:empty::after {
