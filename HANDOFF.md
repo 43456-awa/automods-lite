@@ -62,7 +62,52 @@
 | v0.3.15 | `07ee7d1` | 布局/滚动、中文思考、max 超时加长、工具回执瘦身、自动存 key |
 | v0.3.16 | `c5347fd` | 流式不被连接超时杀掉；目录树；zip；rN jar |
 | v0.3.17 | `e035ed0` | 强制 action-first 节奏（短思考、立刻 write_file） |
-| **v0.4.0** | **`53e7faf` + `b44d5a1` + `cb67ea8`** | **1:1 复刻 automods.cn UI + 实跑验证 + status/think 修复 + 预览台** |
+| **v0.4.0** | 见下 | **1:1 复刻 automods.cn UI + 实跑验证 + 预览台 + 生图工坊 + 上下文 256K/1M** |
+
+v0.4.0 期间的提交：
+`385b8e0` 复刻 UI → `53e7faf` 心跳节流/think 攒行 → `b44d5a1` 版本与文档 →
+`cb67ea8` 预览台 → `d02045c` 贴图工坊 → `cbddf7b` 用量弹窗+归档重命名 →
+`176be08` 生图参数全量 → `cf57e72` 构建环境徽章 → `31a4193` 上下文 256K/1M →
+`5dcdd96` 429 退避放宽 → `fec5ca3` smoke 改 node:http
+
+---
+
+## 3.5 线上发布
+
+**分享链接**：https://d1d1030d61b04e28bdf2507b97874763.sg2.agentos-app.run
+（sandboxId `d1d1030d61b04e28bdf2507b97874763`，`deployedAs: http-service`）
+
+### ⚠️ 每次发布前必做：摘掉密钥
+
+发布是把整个目录压缩上传，而 `config.json` 里有真实 apiKey。流程：
+
+1. `cp config.json <项目外>/config-loclbak.json` —— **备份必须挪出项目目录**。
+   发布工具只排除 `node_modules` / `.git` / build output，`config.json.loclbak`
+   这种留在原地照样会被传上去。
+2. 写一份 `apiKey` / `imageApiKey` 为空的 config.json
+3. 还要清 `config.json.bak-*`（`saveConfig` 留的自动备份，里面同样有 key）
+4. 扫干净：`grep -rlE "sk-[A-Za-z0-9]{16,}" . --exclude-dir=node_modules --exclude-dir=.git` 为空
+5. 发布
+6. **立刻 `mv` 回 config.json**，断言 key 前缀还在
+7. 线上自检：`curl <link>/api/config` 的 `apiKeySet` 必须是 `false`
+
+### 发布命令
+
+```
+workbuddy_sites_deploy {
+  directory: "C:\\Users\\a1390\\Claude Code\\automods-lite",
+  language: "node", startCmd: "node server.js",
+  appName: "AutoMods 模组工作台", userAskedToPublish: true
+}
+```
+
+### 线上环境
+
+- `server.listen` 必须绑 `0.0.0.0`（沙箱反向代理从外部连进来）。
+  本机想收回内网就设 `HOST=127.0.0.1`。
+- 沙箱里**有 gradle**（实测启动页显示「已找到 gradle 9.3.0」），但没有 JDK 21
+  与 NeoForge 依赖缓存，所以真正编译 NeoForge 模组仍可能失败。
+- 访客要自己到设置里填自己的 API Key 才能对话（主人的 key 已摘）。
 
 ---
 
@@ -117,15 +162,20 @@ automods-lite/
 ## 6. 已知限制 / 后续可做
 
 1. **未推送** 0.4.0 之前的「静默中断与心跳修复」已在 v0.4.0 一起提交
-2. 无真正的本地「语义压缩」；仅 tool 回执瘦身 + history 条数窗口
+2. 无真正的本地「语义压缩」；靠 tool 回执瘦身 + token 预算截断（contextLength 256K/1M）
 3. 编译 jar 依赖本机 Gradle/`gradlew`；默认超时 180s（`gradleTimeoutSec`）
-4. 贴图 png 无法生成，只能写路径
+4. ~~贴图 png 无法生成，只能写路径~~ → **已解决**：贴图工坊走 SenseNova
+   `/v1/images/generations`（文生图）+ `/v1/images/edits`（图生图），
+   出图后用 System.Drawing NearestNeighbor 缩到 16/32/64/128 存进工程
 5. 官方 DeepSeek / 中转：长思考仍可能被上游掐；客户端已尽量保留思考并提示
-6. `historyLimit=160` 对长写文件对话仍偏大
+6. **长任务容易撞 429**：一次复杂任务（37 文件 / 52 次 write_file）就会触发。
+   已把 429 退避放宽到下限 5s / 上限 60s、重试提到 6 次；根治要靠减少
+   单文件往返（引导模型一次多写几个文件），目前没做
 7. 应用内更新后若不重启，`server.js` 热更可能走 `server.pending.js`
 8. 主站的粒子监视器（`.hx-monitor` / `.hx-bench` 画布动画）本地版只留 DOM 占位，未接 canvas 动效
 9. `.bbmodel` 模型用 three.js 渲染缩略图，本地版没下 three.js，只下文件不渲图
-10. 主站的「贴图 / 建模 / 模型市场 / 我的资产」四项云端服务本地版只占位，点击提示「主站云端服务，本地版没接」
+10. 主站的「建模 / 模型市场 / 我的资产」三项云端服务本地版只占位；
+    「贴图」已本地实现（见 4）
 
 ---
 
