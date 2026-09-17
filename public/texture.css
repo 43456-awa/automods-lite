@@ -52,14 +52,94 @@
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
-.tex-auto {
+/* ---------------- 模式切换（文生图 / 图生图） ---------------- */
+
+.tex-modes {
   display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 4px 0 12px;
-  font-size: 12px;
+  gap: 4px;
+  margin: 2px 0 12px;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.tex-mode {
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
   cursor: pointer;
+}
+
+.tex-mode:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.tex-mode.on {
+  background: var(--surface);
+  color: var(--accent);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
+}
+
+.tex-mode:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.tex-ref {
+  margin-top: 8px;
+}
+
+.tex-ref img {
+  display: block;
+  max-width: 100%;
+  max-height: 140px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------------- 上游参数（可折叠） ---------------- */
+
+.tex-adv-toggle {
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tex-adv-toggle:hover {
+  color: var(--text);
+}
+
+.tex-adv {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.tex-adv .set-field > span em,
+.tex-auto em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.tex-adv .set-field {
+  margin: 8px 0;
 }
 
 .tex-go {

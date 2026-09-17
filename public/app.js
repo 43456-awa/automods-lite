@@ -1451,6 +1451,49 @@
     imgGrid.appendChild(g5);
     imgGrid.appendChild(g6);
 
+    const imgOutFmt = make('select');
+    ['png', 'jpeg', 'webp'].forEach((f) => {
+      const opt = make('option', null, f);
+      opt.value = f;
+      imgOutFmt.appendChild(opt);
+    });
+    imgOutFmt.value = cfg.imageOutputFormat || 'png';
+    const imgRespFmt = make('select');
+    [['b64_json', 'b64_json（直接拿数据）'], ['url', 'url（24 小时有效）']].forEach(([v, label]) => {
+      const opt = make('option', null, label);
+      opt.value = v;
+      imgRespFmt.appendChild(opt);
+    });
+    imgRespFmt.value = cfg.imageResponseFormat || 'b64_json';
+
+    const imgGrid2 = make('div', 'set-grid');
+    host.appendChild(imgGrid2);
+    const g7 = make('label', 'set-field');
+    g7.appendChild(make('span', null, '输出格式'));
+    g7.appendChild(imgOutFmt);
+    const g8 = make('label', 'set-field');
+    g8.appendChild(make('span', null, '返回方式'));
+    g8.appendChild(imgRespFmt);
+    imgGrid2.appendChild(g7);
+    imgGrid2.appendChild(g8);
+
+    const imgWm = field('其他', make('div'));
+    imgWm.className = 'set-checks';
+    const wmBox = make('label', 'tex-auto');
+    const wmInput = make('input');
+    wmInput.type = 'checkbox';
+    wmInput.checked = Boolean(cfg.imageWatermark);
+    wmBox.appendChild(wmInput);
+    wmBox.appendChild(make('span', null, '带官方水印（默认关，公测期无水印免费）'));
+    const peBox = make('label', 'tex-auto');
+    const peInput = make('input');
+    peInput.type = 'checkbox';
+    peInput.checked = cfg.imagePromptExtend !== false;
+    peBox.appendChild(peInput);
+    peBox.appendChild(make('span', null, '提示词自动润色'));
+    imgWm.appendChild(wmBox);
+    imgWm.appendChild(peBox);
+
     host.appendChild(make('p', 'set-head', '行为'));
     const grid = make('div', 'set-grid');
     host.appendChild(grid);
@@ -1506,6 +1549,10 @@
         imageModel: imgModel.value.trim(),
         imageSize: imgSize.value,
         imageScale: Number(imgScale.value) || 0,
+        imageOutputFormat: imgOutFmt.value,
+        imageResponseFormat: imgRespFmt.value,
+        imageWatermark: wmInput.checked,
+        imagePromptExtend: peInput.checked,
       };
       if (apiKey.value.trim()) body.apiKey = apiKey.value.trim();
       if (imgKey.value.trim()) body.imageApiKey = imgKey.value.trim();

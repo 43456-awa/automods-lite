@@ -58,12 +58,22 @@ const DEFAULT_CONFIG = {
 
   /* ---- 图片生成（贴图工坊）----
    * 留空就沿用上面的 baseUrl / apiKey，省得同一个账号填两遍。
-   * 商汤 SenseNova U1.5 Lite / U1-fast 走 OpenAI 标准的 /images/generations。 */
+   * 商汤 SenseNova U1.5 Lite / U1-fast 走 OpenAI 标准的 /images/generations。
+   * 参数照 https://platform.sensenova.cn/docs 给的那些：
+   *   model / prompt / size / n / watermark / output_format / response_format / prompt_extend
+   * 另有一个独立的图生图接口 /v1/images/edits（仅 U1.5 Lite，必须传参考图）。 */
   imageBaseUrl: '',
   imageApiKey: '',
   imageModel: 'sensenova-u1.5-lite',
-  imageSize: '1024x1024',
-  imageNegative: '',
+  imageSize: '2048x2048',
+  // watermark: 官方 true=带 Logo 水印；false=无水印，公测免费（以后可能转付费）
+  imageWatermark: false,
+  // png / jpeg / webp，仅 U1.5 Lite 支持
+  imageOutputFormat: 'png',
+  // b64_json / url，仅 U1.5 Lite 支持；url 有效期 24 小时（U1 Fast 只有 1 小时）
+  imageResponseFormat: 'b64_json',
+  // 提示词自动润色优化
+  imagePromptExtend: true,
   // 存进工程前缩到多少像素（0 = 不缩放，直接存原图）
   imageScale: 64,
   port: PORT,
@@ -302,38 +312,62 @@ async function detectModId(root, fallback) {
 }
 
 /** 调上游 /images/generations，返回 PNG Buffer */
-async function generateImage(cfg, opts) {
-  const base = String(cfg.imageBaseUrl || cfg.baseUrl || '').replace(/\/+$/, '');
-  const key = cfg.imageApiKey || cfg.apiKey;
-  if (!base) throw new Error('没填接口地址');
-  if (!key || key.startsWith('sk-在这里')) throw new Error('没填密钥');
-
-  const body = {
-    model: opts.model || cfg.imageModel || 'sensenova-u1.5-lite',
-    prompt: String(opts.prompt || '').trim(),
-    n: 1,
-    size: opts.size || cfg.imageSize || '1024x1024',
-  };
-  if (cfg.imageNegative) body.negative_prompt = cfg.imageNegative;
-
-  const res = await fetch(`${base}/images/generations`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(Math.max(30, Number(cfg.apiTimeoutSec) || 180) * 1000),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    let msg = text;
-    try { msg = JSON.parse(text).error?.message || JSON.parse(text).error || text; } catch { /* 不是 JSON */ }
-    throw new Error(`生图失败（${res.status}）：${String(msg).slice(0, 200)}`);
+/** 官方给的尺寸约束：宽高都是 32 的倍数，512–4096，最长边比最短边不超过 3:1 */
+function validateSize(size) {
+  const text = String(size || '').trim();
+  if (text === 'auto') return { ok: true };
+  const m = text.match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+  if (!m) return { ok: false, message: '尺寸要写成 宽x高，例如 2048x2048' };
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (w % 32 !== 0 || h % 32 !== 0) return { ok: false, message: '宽高必须是 32 的倍数' };
+  if (w < 512 || h < 512 || w > 4096 || h > 4096) {
+    return { ok: false, message: '宽高要在 512–4096 之间' };
   }
+  if (Math.max(w, h) / Math.min(w, h) > 3.0001) {
+    return { ok: false, message: '最极端只能 3:1' };
+  }
+  return { ok: true };
+}
 
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error('上游返回的不是 JSON'); }
-  const first = (data.data || [])[0];
+/* 两个模型的建议分辨率，文档里给的；前端按选中的模型换下拉内容 */
+const IMAGE_SIZES = {
+  'sensenova-u1.5-lite': {
+    label: 'U1.5 Lite（生成 + 编辑一体）',
+    sizes: [
+      { v: '2048x2048', label: '2048×2048 · 1:1 · 2K' },
+      { v: '2720x1536', label: '2720×1536 · 16:9 · 2K' },
+      { v: '1536x2720', label: '1536×2720 · 9:16 · 2K' },
+      { v: '1664x2496', label: '1664×2496 · 2:3 · 2K' },
+      { v: '2496x1664', label: '2496×1664 · 3:2 · 2K' },
+      { v: '4096x4096', label: '4096×4096 · 1:1 · 4K' },
+    ],
+    formats: true,      // 支持 output_format / response_format
+    edits: true,        // 支持 /images/edits
+  },
+  'sensenova-u1-fast': {
+    label: 'U1 Fast（加速版，信息图突出）',
+    sizes: [
+      { v: '2048x2048', label: '2048×2048 · 1:1' },
+      { v: '2752x1536', label: '2752×1536 · 16:9' },
+      { v: '1536x2752', label: '1536×2752 · 9:16' },
+      { v: '3072x1376', label: '3072×1376 · 21:9' },
+      { v: '1344x3136', label: '1344×3136 · 9:21' },
+      { v: '1664x2496', label: '1664×2496 · 2:3' },
+      { v: '2496x1664', label: '2496×1664 · 3:2' },
+      { v: '1760x2368', label: '1760×2368 · 3:4' },
+      { v: '2368x1760', label: '2368×1760 · 4:3' },
+      { v: '1824x2272', label: '1824×2272 · 4:5' },
+      { v: '2272x1824', label: '2272×1824 · 5:4' },
+    ],
+    formats: false,
+    edits: false,
+  },
+};
+
+/** 把 b64_json / url 两种响应统一成 Buffer */
+async function bufferFromImageResult(first) {
   if (!first) throw new Error('上游没返回图片');
-
   if (first.b64_json) return Buffer.from(first.b64_json, 'base64');
   if (first.url) {
     const img = await fetch(first.url, { signal: AbortSignal.timeout(60000) });
@@ -341,6 +375,102 @@ async function generateImage(cfg, opts) {
     return Buffer.from(await img.arrayBuffer());
   }
   throw new Error('上游返回里既没有 b64_json 也没有 url');
+}
+
+async function postImageApi(base, key, path, body, timeoutSec) {
+  const res = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(Math.max(30, Number(timeoutSec) || 180) * 1000),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = text;
+    try {
+      const parsed = JSON.parse(text);
+      msg = parsed.error?.message || parsed.error || parsed.message || text;
+    } catch { /* 不是 JSON */ }
+    throw new Error(`生图失败（${res.status}）：${String(msg).slice(0, 300)}`);
+  }
+  try { return JSON.parse(text); } catch { throw new Error('上游返回的不是 JSON'); }
+}
+
+/* 文档给的全套参数：
+   model / prompt / size / n / watermark / output_format / response_format / prompt_extend
+   后三个只有 U1.5 Lite 支持，U1 Fast 传了会报错，所以按模型筛。 */
+async function generateImage(cfg, opts) {
+  const base = String(cfg.imageBaseUrl || cfg.baseUrl || '').replace(/\/+$/, '');
+  const key = cfg.imageApiKey || cfg.apiKey;
+  if (!base) throw new Error('没填接口地址');
+  if (!key || key.startsWith('sk-在这里')) throw new Error('没填密钥');
+
+  const model = opts.model || cfg.imageModel || 'sensenova-u1.5-lite';
+  const spec = IMAGE_SIZES[model] || { formats: false };
+  const size = opts.size || cfg.imageSize || '2048x2048';
+  const check = validateSize(size);
+  if (!check.ok) throw new Error(check.message);
+
+  const body = {
+    model,
+    prompt: String(opts.prompt || '').trim(),
+    n: 1,
+    size,
+    watermark: opts.watermark === undefined
+      ? Boolean(cfg.imageWatermark) : Boolean(opts.watermark),
+    prompt_extend: opts.promptExtend === undefined
+      ? Boolean(cfg.imagePromptExtend) : Boolean(opts.promptExtend),
+  };
+  if (spec.formats) {
+    if (opts.outputFormat || cfg.imageOutputFormat) {
+      body.output_format = opts.outputFormat || cfg.imageOutputFormat;
+    }
+    if (opts.responseFormat || cfg.imageResponseFormat) {
+      body.response_format = opts.responseFormat || cfg.imageResponseFormat;
+    }
+  }
+
+  const data = await postImageApi(base, key, '/images/generations', body, cfg.apiTimeoutSec);
+  return bufferFromImageResult((data.data || [])[0]);
+}
+
+/** 图生图：/v1/images/edits，仅 U1.5 Lite，必须传参考图 */
+async function generateImageEdit(cfg, opts) {
+  const base = String(cfg.imageBaseUrl || cfg.baseUrl || '').replace(/\/+$/, '');
+  const key = cfg.imageApiKey || cfg.apiKey;
+  if (!base) throw new Error('没填接口地址');
+  if (!key || key.startsWith('sk-在这里')) throw new Error('没填密钥');
+
+  const model = opts.model || cfg.imageModel || 'sensenova-u1.5-lite';
+  const spec = IMAGE_SIZES[model];
+  if (spec && !spec.edits) {
+    throw new Error(`${model} 不支持图生图编辑，换 sensenova-u1.5-lite`);
+  }
+  if (!opts.imageUrl) throw new Error('图生图要先传一张参考图');
+
+  const size = opts.size || cfg.imageSize || 'auto';
+  if (size !== 'auto') {
+    const check = validateSize(size);
+    if (!check.ok) throw new Error(check.message);
+  }
+
+  const body = {
+    model,
+    images: [{ image_url: opts.imageUrl }],
+    prompt: String(opts.prompt || '').trim(),
+    n: 1,
+    size,
+    watermark: opts.watermark === undefined
+      ? Boolean(cfg.imageWatermark) : Boolean(opts.watermark),
+    prompt_extend: opts.promptExtend === undefined
+      ? Boolean(cfg.imagePromptExtend) : Boolean(opts.promptExtend),
+  };
+  if (spec && spec.formats && (opts.responseFormat || cfg.imageResponseFormat)) {
+    body.response_format = opts.responseFormat || cfg.imageResponseFormat;
+  }
+
+  const data = await postImageApi(base, key, '/images/edits', body, cfg.apiTimeoutSec);
+  return bufferFromImageResult((data.data || [])[0]);
 }
 
 /** 贴图像素化：MC 贴图越硬边越对味，所以缩放走 NearestNeighbor */
@@ -2382,18 +2512,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    /** 生图：save=1 直接落进工程 textures/<kind>/，否则只返回 base64 给前端预览 */
+    /** 两个模型各自支持的分辨率，前端切模型时用它换下拉内容 */
+    if (p === '/api/image/sizes' && req.method === 'GET') {
+      json(res, 200, { models: IMAGE_SIZES });
+      return;
+    }
+
+    /** 生图 / 图生图：save=1 直接落进工程 textures/<kind>/，否则只返回 base64 给前端预览 */
     if (p === '/api/image' && req.method === 'POST') {
       const cfg = loadConfig();
       const body = await readJson(req);
       const prompt = String(body.prompt || '').trim();
       if (!prompt) return json(res, 400, { error: '没写描述' });
       try {
-        const buf = await generateImage(cfg, {
+        const shared = {
           prompt,
           size: body.size,
           model: body.model,
-        });
+          watermark: body.watermark,
+          outputFormat: body.outputFormat,
+          responseFormat: body.responseFormat,
+          promptExtend: body.promptExtend,
+        };
+        const buf = body.mode === 'edit'
+          ? await generateImageEdit(cfg, { ...shared, imageUrl: body.imageUrl })
+          : await generateImage(cfg, shared);
         if (body.save) {
           const saved = await saveTexture(
             body.project || 'default',

@@ -35,6 +35,24 @@
         </label>
 
         <label class="set-field">
+          <span>模型</span>
+          <select id="model"></select>
+          <small id="modelNote"></small>
+        </label>
+
+        <div class="tex-modes">
+          <button class="tex-mode on" id="modeGen" type="button" data-mode="generate">文生图</button>
+          <button class="tex-mode" id="modeEdit" type="button" data-mode="edit">图生图</button>
+        </div>
+
+        <div class="set-field" id="refBox" hidden>
+          <span>参考图（第一张是主编辑图）</span>
+          <input id="refFile" type="file" accept="image/*" />
+          <div class="tex-ref" id="refPreview" hidden><img id="refImg" alt="参考图" /></div>
+          <small>本地图片会转成 base64 发给上游</small>
+        </div>
+
+        <label class="set-field">
           <span>贴图标识（英文，存成这个名字）</span>
           <input id="name" type="text" placeholder="glowing_block" spellcheck="false" />
         </label>
@@ -56,11 +74,8 @@
         <div class="set-grid">
           <label class="set-field">
             <span>出图尺寸</span>
-            <select id="size">
-              <option value="1024x1024" selected>1024×1024</option>
-              <option value="512x512">512×512</option>
-              <option value="2048x2048">2048×2048</option>
-            </select>
+            <select id="size"></select>
+            <input id="sizeCustom" type="text" placeholder="2048x2048（32 的倍数，512–4096）" hidden />
           </label>
           <label class="set-field">
             <span>存前缩到</span>
@@ -71,6 +86,33 @@
               <option value="128">128×128</option>
               <option value="0">不缩放，存原图</option>
             </select>
+          </label>
+        </div>
+
+        <button class="tex-adv-toggle" id="advToggle" type="button">▸ 上游参数</button>
+        <div class="tex-adv" id="adv" hidden>
+          <label class="tex-auto">
+            <input id="watermark" type="checkbox" />
+            <span>带官方水印 <em>watermark</em></span>
+          </label>
+          <label class="set-field" id="outFmtBox">
+            <span>输出格式 <em>output_format</em></span>
+            <select id="outputFormat">
+              <option value="png">png</option>
+              <option value="jpeg">jpeg</option>
+              <option value="webp">webp</option>
+            </select>
+          </label>
+          <label class="set-field" id="respFmtBox">
+            <span>返回方式 <em>response_format</em></span>
+            <select id="responseFormat">
+              <option value="b64_json">b64_json（直接拿数据）</option>
+              <option value="url">url（24 小时内有效）</option>
+            </select>
+          </label>
+          <label class="tex-auto">
+            <input id="promptExtend" type="checkbox" checked />
+            <span>提示词自动润色 <em>prompt_extend</em></span>
           </label>
         </div>
 
