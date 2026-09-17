@@ -107,6 +107,47 @@ workbuddy_sites_deploy {
   本机想收回内网就设 `HOST=127.0.0.1`。
 - 沙箱里**有 gradle**（实测启动页显示「已找到 gradle 9.3.0」），但没有 JDK 21
   与 NeoForge 依赖缓存，所以真正编译 NeoForge 模组仍可能失败。
+
+---
+
+## 3.8 编译环境（本地，踩了 6 个坑才通）
+
+**目标**：点「编译 Jar」能出 `build/libs/<mod_id>-<ver>.jar`。
+实测已经从一句需求一路跑到产出 19 KB 的可用 jar。要跑通，这 6 件事缺一不可：
+
+| # | 坑 | 症状 | 处理 |
+|---|---|---|---|
+| 1 | **Node v20+ 不许 spawn `.bat`** | `spawn EINVAL`，编译一启动就死 | `spawn` 时对 `.bat/.cmd` 加 `shell: true`，路径带空格要自己加引号 |
+| 2 | **`gradlew.bat` 吞退出码** | gradle 明明 FAILED，却报「构建成功」 | 模板末尾必须 `set EXIT_CODE=%ERRORLEVEL%` → `endlocal & exit /b %EXIT_CODE%`；只写 `endlocal` 会把它抹掉 |
+| 3 | **`neo_version` 是编的** | `Could not find net.neoforged:neoforge:21.1.0` | maven 上是 `21.1.250` 这种带 build 号的；一键准备会自动校正 |
+| 4 | **JDK 21 不在 PATH** | gradlew 拿到的是 17，报 class file 版本错 | PATH 里是 17，但 `C:\Program Files\Java\jdk-21` 装了；`detectJdk21()` 会翻常见目录并把 `JAVA_HOME`/`PATH` 指过去 |
+| 5 | **反编译 Minecraft 内存不够** | JVM 崩：`insufficient memory ... G1 virtual space` | `org.gradle.jvmargs=-Xmx3G -XX:MaxMetaspaceSize=1G`；可用内存 < 4G 时提前拦下 |
+| 6 | **僵尸 java 进程占内存** | 总内存 15G 但可用只剩 2.5G | 编译崩掉后 Gradle daemon 不会自己退出（实测见到一个占 4.4 GB 的）；`staleJavaProcesses()` 会列出来 |
+
+### 一键准备
+
+输入栏「🔨 构建」徽章 →「**⚡ 一键准备构建环境**」会依次做：
+找 JDK 21 → 装 gradlew（下 43 KB 的 wrapper jar + 生成脚本）→ 校验并校正
+`neo_version` → 把 Gradle 堆提到 3G → 报当前可用内存。四步全绿就能编译。
+
+也可直接调接口：`POST /api/build/setup {project}`、`GET /api/build/doctor`。
+
+### 第一次编译要多久
+
+要下 Gradle 8.10（约 130 MB）+ NeoForge 依赖 + **反编译整个 Minecraft**，
+实测 5-10 分钟。之后就快了（有缓存）。所以 `gradleTimeoutSec` 建议设 1500。
+
+### 模型会写错 API —— 一定要编译验证
+
+实测：模型写完 37 个文件收工，编译报 14 个错，全是 NeoForge 1.21 的签名差异：
+
+- `ArmorMaterial` 在 1.21.1 是 **record 不是 interface**，别写 `implements`
+- `ArmorItem` 要的是 `Holder<ArmorMaterial>`，得用 `DeferredRegister` 注册成 `DeferredHolder`
+- `SimpleTier` 第一个参数是 `TagKey<Block>`（如 `BlockTags.INCORRECT_FOR_STONE_TOOL`），不是 int
+- 物品用 `props.attributes(...)`，别用旧的 `new SwordItem(tier, atk, spd, props)`
+
+把 javac 输出原样丢回去，模型能自己修（实测它读了文件、改 3 个、**主动调了两次
+`run_gradle` 验证**，第二次通过）。system prompt 第 8 条已要求它写完代码主动编译。
 - 访客要自己到设置里填自己的 API Key 才能对话（主人的 key 已摘）。
 
 ---
