@@ -16,26 +16,32 @@ echo.
 
 set "REPO=43456-awa/automods-lite"
 set "BRANCH=main"
+set "CORE=tools\update-core.ps1"
 
-rem update.ps1 是真正干活的脚本。老版本里没有这个文件，
-rem 所以这里先自己把它拉下来（jsDelivr 国内一般能直连）。
-if not exist "update.ps1" (
-  echo 第一次运行，先取更新脚本 update.ps1 ...
+rem 老版本可能把 update.ps1 留在根目录，双击它会报一堆「不是内部或外部命令」。
+rem 这里顺手清掉，免得再点错。
+if exist "update.ps1" del /q "update.ps1" >nul 2>nul
+
+rem 真正干活的是 tools\update-core.ps1（藏在子目录里，避免被误双击）。
+rem 老版本没有这个文件，所以这里先自己拉一份。
+if not exist "%CORE%" (
+  echo 第一次运行，先取更新脚本 ...
+  if not exist "tools" mkdir "tools" >nul 2>nul
   where curl.exe >nul 2>nul
   if errorlevel 1 (
     echo [错误] 系统里没有 curl.exe（Windows 10 1803 以上自带）。
-    echo        手动打开下面这个地址，把内容另存为 update.ps1 放在本目录：
-    echo        https://raw.githubusercontent.com/%REPO%/%BRANCH%/update.ps1
+    echo        手动打开下面地址，把内容另存为 tools\update-core.ps1 ：
+    echo        https://raw.githubusercontent.com/%REPO%/%BRANCH%/tools/update-core.ps1
     echo.
     pause
     exit /b 1
   )
-  curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "update.ps1" "https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/update.ps1"
-  if not exist "update.ps1" (
-    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "update.ps1" "https://raw.githubusercontent.com/%REPO%/%BRANCH%/update.ps1"
+  curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/tools/update-core.ps1"
+  if not exist "%CORE%" (
+    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://raw.githubusercontent.com/%REPO%/%BRANCH%/tools/update-core.ps1"
   )
-  if not exist "update.ps1" (
-    echo [错误] 下不到 update.ps1，检查网络或开代理后重试。
+  if not exist "%CORE%" (
+    echo [错误] 下不到更新脚本，检查网络或开代理后重试。
     echo.
     pause
     exit /b 1
@@ -56,7 +62,7 @@ echo 提示：如果服务正在运行，建议先关掉那个窗口，避免文
 echo.
 timeout /t 3 >nul
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0update.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0%CORE%"
 set RC=%ERRORLEVEL%
 
 echo.

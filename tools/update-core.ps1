@@ -57,7 +57,7 @@ Write-Host '正在更新：'
 $files = @(
   'boot.js', 'server.js', 'learn.mjs', 'updater.mjs', 'memory.mjs',
   'package.json', 'update.json', 'README.md',
-  'start.bat', 'update.bat', 'update.ps1', '启动.bat'
+  'start.bat', 'update.bat', '启动.bat'
 )
 foreach ($f in $files) {
   $s = Join-Path $src $f
