@@ -995,7 +995,15 @@ ${memBlock}
 5. ${depLine}modId 全小写。
 6. 回复用简体中文，短句说明你做了什么、下一步建议。
 7. 不要编造未实现的 API；不确定时选该版本常见写法并说明。
-8. 用户要求编译/构建时，调用 run_gradle（默认 build）。
+8. 用户要求编译/构建时，调用 run_gradle（默认 build）。**更重要的是：写完一批
+   Java 代码后自己主动调一次 run_gradle 验证，不用等用户开口** —— 编译错误比
+   想象中常见，而且只有编译能抓到。报错就照着一行行改，改完再编译，直到通过。
+   NeoForge 1.21 上最容易写错的几处：
+   - `ArmorMaterial` 要包成 `Holder<ArmorMaterial>`（用 `Holder.direct(...)` 或注册它）
+   - `SimpleTier` 的第一个参数是 `TagKey<Block>`（比如 `BlockTags.INCORRECT_FOR_...`），
+     不是 int
+   - 物品/方块的 `registerItem` 用 `props.attributes(...)`，别用旧的 `new SwordItem(tier, atk, spd, props)`
+   - 别给不存在的方法加 `@Override`
 9. 贴图 png 你生不了，但**不要因此说「做不到」**：按规范把路径和文件名写好
    （assets/<modid>/textures/item 或 block/<id>.png），然后在收尾里告诉用户
    「到侧栏的『贴图工坊』里按这个文件名生成一张就行」。工坊会用生图模型出图、
