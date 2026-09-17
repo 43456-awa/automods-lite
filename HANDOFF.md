@@ -3,7 +3,10 @@
 更新时间：2026-09-17  
 仓库：https://github.com/43456-awa/automods-lite  
 本地路径：`C:\Users\a1390\Claude Code\automods-lite`  
-已推送版本：**v0.4.0**（`53e7faf`）
+已推送版本：**v0.5.0**（最新提交 `1d364e7`）  
+⚠️ 线上分享链接跑的仍是 **v0.4.0**，见 3.5
+
+**先读这三节**：3.5 线上发布（含密钥脱敏流程）→ 3.8 编译环境 → 3.10 前端实时渲染。
 
 ---
 
@@ -19,7 +22,9 @@
 
 ---
 
-## 2. v0.4.0 这一轮做了什么
+## 2. v0.4.0：UI 复刻与实跑验证（背景）
+
+> 这一节是 v0.4.0 做的事。v0.5.0 的内容在 3.8 / 3.9 / 3.10 三节。
 
 ### UI 复刻
 
@@ -28,7 +33,7 @@
 | 启动页 | 微信扫码 | 本机就绪卡（密钥 / 模型 / 编译环境 三项红绿黄圆点） |
 | 侧栏 | 历史项目 / + 新建 / 贴图 / 建模 / 市场 / 我的资产 | 历史项目 / + 新建 / 贴图 / 建模 / 教程（点击云端入口会提示「本地版未接入」） |
 | 顶栏 | 标题 / 编号 / 状态 / 停止 / 活动 / 积分 / 主题 / 个人中心 | 标题 / 编号 / 状态 / 停止 / 用量 / 主题 / 本机设置 |
-| 输入栏 | + / 麦克风 / AI 构建 / 模型 / 集群 / 上下文 / 发送 | 同上；麦克风走浏览器 `webkit SpeechRecognition`；集群是占位；上下文改为「条数」选择 |
+| 输入栏 | + / 麦克风 / AI 构建 / 模型 / 集群 / 上下文 / 发送 | 同上；麦克风走浏览器 `webkit SpeechRecognition`；**「集群」已删**（本地没有多帮手这功能，留着纯误导）；上下文改成 **256K / 1M 的 token 容量**（原来「多少条消息」看不懂，已废弃）；另加「🔨 构建」徽章 |
 | 资产栏 | 产物文件 + 整包下载 + 改名 | 产物文件 + 整包下载 + 「编译 Jar」按钮 + 项目改名 |
 | 弹窗 | 构建配置 / AI 规划 / 改名 / 公告 | 同上；公告兼作「本机用量 / 检查更新」面板 |
 | 引导 | 首次进入选新手/老手 + 4 步巡览 | 同上（hero / 输入栏 / 模型 / 资产栏） |
@@ -70,10 +75,25 @@ v0.4.0 期间的提交（`385b8e0` → `518aefb`）：
 用量弹窗+归档重命名 → 生图参数全量 → 构建环境徽章 → 上下文 256K/1M →
 429 退避放宽 → smoke 改 node:http
 
-v0.5.0 期间的提交（`faa0c5c` → `eda5d5e`）：
-写完要切出去才刷新 → **编译 spawn EINVAL（从来跑不通的根因）** →
-编译三个后续问题 → 残留 java 进程检测 → prompt 要求主动编译验证 →
-prompt 反引号截断 → HANDOFF 补编译环境章节
+v0.5.0 期间的提交（`faa0c5c` → `1d364e7`）：
+
+| commit | 要点 |
+|---|---|
+| `faa0c5c` | 写完要切出去才刷新（资产栏收起 + 文件不实时刷 + SSE 残留） |
+| `88c5da5` | **编译 spawn EINVAL（从来跑不通的根因）** + 一键准备 + JDK 21 检测 |
+| `a97932e` | gradlew.bat 吞退出码 / neo_version 编造 / 内存不足 |
+| `9ddf7bf` | 残留 java 进程检测 |
+| `10765a9` | prompt：写完代码主动编译验证 + NeoForge 1.21 API 陷阱 |
+| `147041c` | prompt 反引号截断（服务起不来） |
+| `bd6a738` | 版本号 0.4.0 → **0.5.0** |
+| `00a3ecc` | **对话区一片空白（「要刷新才看到」的真正原因）** |
+| `911f8cf` | 弹窗加「立即更新」按钮 |
+| `dd3a740` | update.bat 文件清单还停在 0.3.x（更新完前端样式会全丢） |
+| `c3ad574` | update.ps1 补 UTF-8 BOM |
+| `f40d74a` | update.bat 自举（老版本没 ps1 也能更新） |
+| `c0695bf` | 干活的脚本挪进 tools/（根目录两个文件容易点错） |
+| `ece02ed` | update.bat 去掉所有中文（cmd 按 GBK 解析会吃掉引号） |
+| `1d364e7` | tools/update-core.ps1 算错项目根（把代码复制进了 tools/） |
 
 ---
 
@@ -112,6 +132,23 @@ workbuddy_sites_deploy {
   本机想收回内网就设 `HOST=127.0.0.1`。
 - 沙箱里**有 gradle**（实测启动页显示「已找到 gradle 9.3.0」），但没有 JDK 21
   与 NeoForge 依赖缓存，所以真正编译 NeoForge 模组仍可能失败。
+- 线上没有主人的 API Key（`apiKeySet: false`），**访客要自己到设置里填**才能对话。
+
+### ⚠️ 线上当前落后于仓库（重要）
+
+**线上跑的仍是 `0.4.0`**（最后发布于 `518aefb`）。之后这一批都没上线：
+
+| 未上线的修复 | 影响 |
+|---|---|
+| `00a3ecc` 对话区空白 | **朋友遇到的问题就是这个**：任务开头几十秒对话区一片空白，得切出去再进来 |
+| `911f8cf` 立即更新按钮 | 线上弹窗只有「打开仓库 / 知道了」 |
+| 编译环境一键准备 + 6 个坑的修复 | 线上点编译必失败 |
+| `bd6a738` 版本号 0.5.0 | 线上 `/api/health` 仍返回 `0.4.0` |
+
+判断线上新旧的最快方法：`curl <link>/api/health` 看 `version`，
+或 `curl <link>/app.js | grep -c 正在连接模型`（0 = 旧版）。
+
+**发布是把当前工作区整包上传**，所以只要重新发布，线上就会带上最新代码。
 
 ---
 
@@ -153,7 +190,131 @@ workbuddy_sites_deploy {
 
 把 javac 输出原样丢回去，模型能自己修（实测它读了文件、改 3 个、**主动调了两次
 `run_gradle` 验证**，第二次通过）。system prompt 第 8 条已要求它写完代码主动编译。
-- 访客要自己到设置里填自己的 API Key 才能对话（主人的 key 已摘）。
+
+---
+
+## 3.9 客户端更新（update.bat）—— 给拿到本地副本的人
+
+**场景**：把项目拷给别人跑（比如朋友手上那份 0.4）。他们不在 git 里，
+没法 `git pull`，得靠一个双击就能用的更新脚本。
+
+### 入口只有一个
+
+```
+update.bat                      ← 根目录唯一入口，双击它
+tools/update-core.ps1           ← 真正干活的（藏在子目录，避免被误点）
+```
+
+**这条是踩出来的**：最早 `update.bat` 和 `update.ps1` 都摆在根目录，
+朋友**双击了 `.ps1`** —— 他那边 `.ps1` 关联到 cmd，于是 cmd 把 PowerShell
+代码逐行当命令执行，报一屏「不是内部或外部命令」。
+**给非技术用户的东西，入口只能有一个。**
+
+### 两个编码坑（Windows 特有）
+
+| 文件 | 坑 | 规则 |
+|---|---|---|
+| `tools/update-core.ps1` | PS 5.1 读 `.ps1` 默认按 ANSI/GBK 解析，UTF-8 无 BOM 的中文注释会全乱 → 字符串截断 → 一屏语法错误 | **必须带 UTF-8 BOM**（`EF BB BF`），且 BOM 要提交进仓库 |
+| `update.bat` | cmd.exe 按系统代码页（中文 Windows = GBK）解析 `.bat`，UTF-8 中文被读乱后**会连引号和反斜杠一起吃掉**，整行断成「不是内部或外部命令」 | **bat 里一个非 ASCII 字符都不能有**；中文提示全部交给带 BOM 的 ps1 输出（bat 里保留 `chcp 65001` 保证控制台能显示中文） |
+
+> 自噬注意：`tools/` 目录在更新清单里，所以 `update-core.ps1` **会更新自己** ——
+> 本地改完它必须**先 push**，否则下次自更新会被仓库里的旧版覆盖回去（踩过一次，白修）。
+
+### 自举
+
+老版本（0.3.x / 0.4.0）里**没有 `tools/update-core.ps1`**。所以 `update.bat` 发现
+脚本缺失时，会先用 `curl` 从 jsDelivr 拉下来（失败退到 raw.githubusercontent），
+再继续更新。**这样对方只要有一个 `update.bat` 就能完成整个更新。**
+
+### 更新范围
+
+| 会覆盖 | 绝不碰 |
+|---|---|
+| `boot.js` / `server.js` / 各 `.mjs` / `package.json` / `update.json` | **`config.json`**（密钥、模型） |
+| **`public/`**（含 `vendor/` 全部 CSS、`assets/` 图片） | **`workspace/`**（工程） |
+| `content/`（教程）、`tools/`、`start.bat` / `update.bat` / `启动.bat` | **`chats/`**、`usage.json` |
+
+下载源按 **jsDelivr → fastly → raw.githubusercontent** 依次回退
+（实测这台机器上前两个都失败，只有 GitHub 直连成功，所以多源回退是必要的）。
+
+`server.js` 被占用时落成 `server.pending.js`，**下次由 `boot.js` 启动时替换** ——
+所以更新后要用 `启动.bat` / `node boot.js` 重启，直接 `node server.js` 不会做这步。
+
+### 两个实现细节（都是 bug 修出来的）
+
+- `$root` 必须取**脚本所在目录的上一级**：
+  ```powershell
+  $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+  $root      = Split-Path -Parent $scriptDir
+  ```
+  只取一层会得到 `tools/`，于是所有文件被复制进 `tools/`，还嵌套出 `tools/tools/`。
+- 旧的 `update.bat`（0.3 时代）文件清单里是 `public/style.css` 这种**早就不存在的文件**，
+  而且**完全缺 `public/vendor/`** —— 跑完会拉到新 `server.js` 但前端样式全丢，页面直接废掉。
+  现在的清单改成了「整包 zip 解压覆盖」。
+
+### 怎么验证脚本没坏
+
+沙箱里不能直接调 cmd，写个 `.mjs` 用 `child_process` 跑（去掉 `pause` 的副本），
+断言三件事：`exit=0`、**没有「不是内部或外部命令」**、`tools/` 没多出文件。
+
+---
+
+## 3.10 前端实时渲染：一个我修错方向的 bug
+
+**现象**（主人报的）：发完消息，**对话区一片空白**，要切出去再进来才能看到内容。
+
+### 第一次修错了
+
+我先猜是「资产栏收起」+「文件不实时刷新」+「SSE 收尾丢数据」，
+修了这三处（`faa0c5c`）—— 它们**确实都是真 bug**，但**不是这个现象的原因**。
+修完用户说还是这样。
+
+### 第二次：先复现，再定位
+
+加了调试参数 **`?autosend=<文本>`**（页面加载后自动发一句），
+headless 打开、等 60 秒截图 —— 一次就复现了：
+用户消息在、顶栏显示「制作中」、**对话区空白**。
+
+根因：
+
+```js
+case 'status':
+  if (state.work) state.work._now.textContent = event.text;   // ← state.work 为 null 时啥也不做
+  break;
+```
+
+工作记录卡**只在收到第一个 `think_delta` / `tool` 时才创建**，
+而模型开头那几十秒只在憋思考、服务端**只发 `status`** —— 事件全被静默丢弃。
+「切出去再进来」能看到，是因为那时 chat 已落库，`renderHistory` 会重放。
+
+### 修法（`00a3ecc`）
+
+1. `runChat` 发请求前**主动 `workCard()`** →「正在制作 · 正在连接模型…」立刻出现
+   （主站也是这个行为：一开工就有这张卡）
+2. `status` 事件兜底：`state.work` 为空就现场建卡
+3. `finishRun` 里若一步都没跑成（一上来就报错），撤掉空卡别留误导
+
+### 教训
+
+用户说「要刷新才能看到」，**不要凭猜改代码**。先做一个能一键复现的入口
+（`?autosend=` 就是这个用途），截图对比修前修后，再动刀。
+
+---
+
+## 3.11 调试用 URL 参数
+
+都只影响前端行为，正常访问不会触发：
+
+| 参数 | 作用 |
+|---|---|
+| `?app=1` | 跳过启动页直接进工作台 |
+| `?chat=<id>` | 直接打开某个项目（可收藏 / 分享） |
+| `?usage=1` | 打开上下文用量详情弹窗 |
+| `?buildenv=1` | 展开构建环境菜单 |
+| `?benchid=<物品id>` | 直接摊开预览台里那一格的详情 |
+| `?update=1` | 立刻检查更新 |
+| `?autosend=<文本>` | 加载后自动发一句（复现实时渲染类问题） |
+| `?theme=dark` | 深色主题 |
 
 ---
 
@@ -161,20 +322,39 @@ workbuddy_sites_deploy {
 
 当前本机示例（勿提交到 git）：
 
+**对话**
+
 - `baseUrl`: `https://token.sensenova.cn/v1`
 - `model`: `deepseek-v4-pro`
 - `reasoningEffort`: **high**（曾用 max，大需求会烧光 token 只思考）
 - `apiTimeoutSec`: 180
-- `apiRetries`: 4
-- `historyLimit`: 160（偏大；长对话建议 24–36）
+- `apiRetries`: **6**（长任务会撞 429，4 次不够；429 单独一档退避 5s–60s）
+- `contextLength`: **`256k`**（可选 `1m`）—— **这是主导项**，按 token 算容量
+- `historyLimit`: 160（**已降级成条数兜底**，不再主导截断；token 预算先起效）
 - `maxTokens`: 32768
+
+**编译**
+
 - `gradleCmd`: 空（工程内需 `gradlew`，或设置里填本机 gradle）
+- `gradleTimeoutSec`: **1500**（第一次要反编译整个 Minecraft，180 秒必超）
+
+**生图（贴图工坊）**
+
+- `imageBaseUrl` / `imageApiKey`: 空 = 沿用上面的 `baseUrl` / `apiKey`
+- `imageModel`: `sensenova-u1.5-lite`（可选 `sensenova-u1-fast`）
+- `imageSize`: 见 `GET /api/image/sizes`（U1.5 Lite 6 档 / U1 Fast 11 档）
+- `imageScale`: 64（存进工程前缩到多少像素；0 = 原图）
+- `imageOutputFormat` / `imageResponseFormat` / `imageWatermark` / `imagePromptExtend`:
+  对应官方 `output_format` / `response_format` / `watermark` / `prompt_extend`，
+  后两项**只有 U1.5 Lite 支持**（U1 Fast 传了会报错，代码里已按模型屏蔽）
 
 **教训：**
 
 - 推理 **max** + 复杂世界/大型需求 → 模型可思考 8 分钟+ 仍不 `write_file`
 - **high** 更稳；先骨架再细节
 - `historyLimit` 过大 + 未压缩工具全文 → 请求体膨胀、易 429/慢
+- 上下文占用看 `GET /api/context?chatId=`（按字符/2 粗估 token），
+  别再用「多少条消息」去理解 —— 那是旧的、看不懂的口径
 
 ---
 
@@ -196,9 +376,13 @@ automods-lite/
     assets/            # logo + loader 图标
   tools/
     smoke.mjs          # 冒烟脚本
+    probe-image.mjs    # 探生图接口
+    update-core.ps1    # 客户端更新脚本（带 UTF-8 BOM，勿去）
   server.js            # 主服务
   updater.mjs          # 应用内更新
   boot.js              # 启动入口（应用 pending server.js）
+  update.bat           # 客户端更新入口（纯 ASCII，勿加中文）
+  .gitattributes       # `*.ps1 -text` / `*.bat -text`，防行尾转换弄坏 BOM
 ```
 
 测试用工程示例：`workspace/projects/p_f239d44f/`（发光方块，15 文件，已写完未编译）；`workspace/projects/p_15dfe7ca/`（喷火剑，11 文件，已写完未编译）。
@@ -207,9 +391,11 @@ automods-lite/
 
 ## 6. 已知限制 / 后续可做
 
-1. **未推送** 0.4.0 之前的「静默中断与心跳修复」已在 v0.4.0 一起提交
+1. **线上落后于仓库**（见 3.5）——线上仍是 `0.4.0`，本批修复没上线。这是当前
+   最该处理的一条：朋友遇到的问题（对话区空白）就是因为线上没同步
 2. 无真正的本地「语义压缩」；靠 tool 回执瘦身 + token 预算截断（contextLength 256K/1M）
-3. 编译 jar 依赖本机 Gradle/`gradlew`；默认超时 180s（`gradleTimeoutSec`）
+3. 编译 jar 依赖本机 Gradle/`gradlew`；**超时要设 1500**（默认值偏小，
+   第一次反编译 Minecraft 180 秒必超）
 4. ~~贴图 png 无法生成，只能写路径~~ → **已解决**：贴图工坊走 SenseNova
    `/v1/images/generations`（文生图）+ `/v1/images/edits`（图生图），
    出图后用 System.Drawing NearestNeighbor 缩到 16/32/64/128 存进工程
@@ -242,8 +428,10 @@ node boot.js
 
 - 对话里是否有中文 `error` 气泡 / toast
 - `config.json` 是否还在、`apiKeySet` 是否为 true（启动页 hint）
-- 是否仍在用旧版：`update.json` 的 `version`
+- 是否仍在用旧版：`/api/health` 的 `version`（**不是** `update.json` ——
+  服务启动时才读版本，改完不重启仍显示旧值）
 - 8787 是否被旧进程占用（`netstat -ano | findstr 8787`）
+- 前端行为异常时，先 `Ctrl+Shift+R` 强刷（静态文件是 `no-cache`，但浏览器仍可能留旧 JS）
 
 **冒烟一次**
 
@@ -256,8 +444,28 @@ node tools/smoke.mjs "加一个会发光的方块"
 
 1. 改 `package.json` + `update.json` 的 version/notes  
 2. `git add` 相关文件（**不要** add `config.json` `usage.json` `chats/` `workspace/`）  
-3. `git commit -m "vX.Y.Z: …"`  
-4. `git push origin main`
+3. `git commit -F <消息文件>` —— **别用 `-m` 带反引号**，bash 会当命令替换执行
+4. `git push origin main`（见下面的代理）
+
+**这台机器的 git 网络（会变，别照抄）**
+
+`127.0.0.1:10808`（clash）实测**是通的**。所以推 GitHub 用：
+
+```bash
+git -c http.proxy=http://127.0.0.1:10808 -c https.proxy=http://127.0.0.1:10808 push origin main
+```
+
+> 反面经验：曾经记着「10808 不通、要清空代理」，结果清空后走直连 21 秒超时失败。
+> **先 `curl -x http://127.0.0.1:10808 -o /dev/null -w "%{http_code}" https://github.com` 探一下**，
+> 通了就用它，别凭记忆。
+> 推完必须**独立复核**：`git ls-remote origin refs/heads/main` 或 GitHub API
+> 对比本地 HEAD —— `git log origin/main..HEAD` 在 remote-tracking 引用丢失时会给出
+> 假的「0 个待推送」。
+
+**给别人本地副本更新**
+
+改完 `update.bat` / `tools/update-core.ps1` 后**必须先 push 再让别人跑** ——
+否则对方自更新时会被仓库里的旧版覆盖回去。
 
 ---
 
@@ -272,7 +480,27 @@ node tools/smoke.mjs "加一个会发光的方块"
 | 教程页 | `public/learn.html` + `learn.js` |
 | 主站样式源 | `public/vendor/` |
 | 旧前端备份 | `public/legacy/` |
-| 更新器 | `updater.mjs` |
-| 启动 | `boot.js` / `启动.bat` |
+| 更新器（应用内） | `updater.mjs` |
+| 更新入口（给别人的副本） | `update.bat` → `tools/update-core.ps1` |
+| 启动 | `boot.js` / `启动.bat` / `start.bat` |
 | 冒烟脚本 | `tools/smoke.mjs` |
+| 生图接口探测 | `tools/probe-image.mjs` |
 | 远端版本清单 | `update.json` |
+
+**接口速查**
+
+| 接口 | 用途 |
+|---|---|
+| `GET /api/health` | 版本 / 工作区（判断线上新旧） |
+| `GET /api/env` | gradle / JDK 状态（输入栏构建徽章） |
+| `GET /api/build/doctor` | 构建环境体检 |
+| `POST /api/build/setup` | 一键准备构建环境 |
+| `POST /api/build` | 编译（失败返回 400 + 完整日志） |
+| `GET /api/bench?project=` | 预览台（资产 / 配方 / 模型） |
+| `GET /api/context?chatId=` | 上下文用量（按类拆分） |
+| `POST /api/image` | 生图 / 图生图（`mode=generate\|edit`） |
+| `GET /api/image/sizes` | 各模型的尺寸与能力元数据 |
+| `POST /api/chats/:id/archive` | 归档 / 恢复 |
+| `POST /api/chats/:id/rename` | 重命名 |
+| `GET /api/usage` | 本机累计用量 |
+| `POST /api/update` / `/api/update/apply` | 检查更新 / 应用更新 |
