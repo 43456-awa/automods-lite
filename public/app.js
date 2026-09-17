@@ -613,6 +613,9 @@
     }
     $('conversation').appendChild(mine);
     stick(true);
+    // 对话不再是空的，资产栏该展开了——之前这里没更新，新对话发完第一句
+    // 资产栏还保持「收起」状态，新写出来的文件看不见，得切出去再进来才行
+    updateBlank();
 
     state.work = null;
     state.live = null;
@@ -666,12 +669,19 @@
     } catch (e) {
       toast(`连接断了：${e.message || e}`, 'bad');
     }
+    // 收尾：buffer 里可能还压着最后一段（没等到 \n\n 连接就断了），
+    // 那段常常正是 run_end / files，丢了资产栏就不刷新
+    buffer += decoder.decode();
+    if (buffer.trim().startsWith('data:')) {
+      try { handleEvent(JSON.parse(buffer.trim().slice(5).trim())); } catch { /* 半截数据，算了 */ }
+    }
     finishRun();
   }
 
   function finishRun() {
     closeThink();
     setRunState('空闲', false);
+    updateBlank(); // 这一轮结束了，资产栏按「有对话」的状态摆
     if (state.work) {
       state.work._head.textContent = '制作记录';
       state.work._now.textContent = `${state.steps} 步 · 点开看它都做了什么`;
@@ -780,6 +790,7 @@
       case 'tool_note':
         if (event.type === 'write' && event.path) {
           stepRow('写出', `${event.path} · ${size(event.bytes)}`);
+          scheduleAssetRefresh(); // 资产栏跟着长出来
         } else if (event.type === 'release') {
           stepRow('发布成品', event.path || '');
         }
@@ -809,6 +820,17 @@
   }
 
   /* ------------------------------------------------------------ 资产栏 */
+
+  /* 写文件时别每写一个就整块重画（一次任务能写几十个文件，会闪），
+     攒 2 秒刷一次，看起来就是文件陆续冒出来。 */
+  let assetRefreshTimer = 0;
+  function scheduleAssetRefresh() {
+    if (assetRefreshTimer) return;
+    assetRefreshTimer = setTimeout(() => {
+      assetRefreshTimer = 0;
+      loadAssets().catch(() => {});
+    }, 2000);
+  }
 
   async function loadAssets(force) {
     if (!state.project) {
