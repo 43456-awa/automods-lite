@@ -27,6 +27,12 @@ echo.
 set "REPO=43456-awa/automods-lite"
 set "BRANCH=main"
 set "CORE=tools\update-core.ps1"
+rem jsDelivr caches @main for up to 12h. Measured: that copy of
+rem tools/update-core.ps1 was the OLD one (Age 4h+), which computes the
+rem project root with a single Split-Path and unpacks everything into
+rem tools\ instead of updating. So prefer an immutable commit-pinned URL
+rem and validate the content afterwards (see :checkcore).
+set "PIN=a9f33b15a0c5b3b3f3ed76002968669573cb707e"
 
 rem Old versions left update.ps1 in the root; double-clicking it breaks.
 if exist "update.ps1" del /q "update.ps1" >nul 2>nul
@@ -44,12 +50,22 @@ if not exist "%CORE%" (
     pause
     exit /b 1
   )
-  curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/tools/update-core.ps1"
+  curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://cdn.jsdelivr.net/gh/%REPO%@%PIN%/tools/update-core.ps1"
+  call :checkcore
   if not exist "%CORE%" (
-    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://raw.githubusercontent.com/%REPO%/%BRANCH%/tools/update-core.ps1"
+    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://cdn.jsdelivr.net/gh/%REPO%@%BRANCH%/tools/update-core.ps1"
+    call :checkcore
   )
   if not exist "%CORE%" (
-    echo [ERROR] Could not download the update script.
+    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://fastly.jsdelivr.net/gh/%REPO%@%BRANCH%/tools/update-core.ps1"
+    call :checkcore
+  )
+  if not exist "%CORE%" (
+    curl -L --fail --silent --show-error --connect-timeout 15 --max-time 120 -o "%CORE%" "https://raw.githubusercontent.com/%REPO%/%BRANCH%/tools/update-core.ps1"
+    call :checkcore
+  )
+  if not exist "%CORE%" (
+    echo [ERROR] Could not get a usable update script.
     echo         Check your network or turn on a proxy, then run this again.
     echo.
     pause
@@ -84,3 +100,24 @@ echo.
 pause
 endlocal
 exit /b %RC%
+
+rem ---------------------------------------------------------------
+rem The downloaded updater must be validated. Two known failure modes:
+rem   1) 0 bytes - curl failed but left an empty file; "if not exist"
+rem                calls that success, PowerShell runs an empty script
+rem                and reports OK without updating anything.
+rem   2) old ps1 - computes the root with ONE Split-Path, so it unpacks
+rem                the whole project into tools\ (measured: jsDelivr
+rem                @main served that one with Age 4h+).
+rem Either way: delete it so the next mirror takes over.
+rem ---------------------------------------------------------------
+:checkcore
+if not exist "%CORE%" exit /b 0
+for %%F in ("%CORE%") do if %%~zF EQU 0 del /q "%CORE%" >nul 2>nul
+if not exist "%CORE%" exit /b 0
+findstr /C:"$scriptDir" "%CORE%" >nul 2>nul
+if errorlevel 1 (
+  del /q "%CORE%" >nul 2>nul
+  echo   [warn] stale updater dropped, trying another mirror ...
+)
+exit /b 0
