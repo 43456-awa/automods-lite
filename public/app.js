@@ -170,18 +170,27 @@
     { id: 'high', name: '深', note: '慢慢想，写得稳' },
     { id: 'max', name: '极深', note: '会想很久，慎用' },
   ];
+  /* 上下文长度按 token 给两档，不再数「多少条消息」——
+   一条工具回执顶几十条对话，按条数算根本看不出占了多少。 */
+  const CTX_TOKENS = { '256k': 256 * 1024, '1m': 1024 * 1024 };
   const CTX_CHOICES = [
-    { id: 16, name: '16 条', note: '省 token' },
-    { id: 24, name: '24 条', note: '推荐' },
-    { id: 36, name: '36 条', note: '长对话' },
-    { id: 64, name: '64 条', note: '很长的对话' },
+    { id: '256k', name: '256K', note: '常规对话' },
+    { id: '1m', name: '1M', note: '超长对话' },
   ];
+
+  /** token 数显示成 5.1K / 1.0M 这种短形式 */
+  function fmtTokens(n) {
+    const v = Number(n) || 0;
+    if (v >= 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)}M`;
+    if (v >= 1024) return `${(v / 1024).toFixed(0)}K`;
+    return String(v);
+  }
 
   const draft = {
     mcVersion: store.get('mcVersion', ''),
     loader: store.get('loader', 'neoforge'),
     effort: store.get('effort', 'high'),
-    ctxLimit: store.get('ctxLimit', 24),
+    ctxLength: store.get('ctxLength', '256k'),
   };
 
   /* ------------------------------------------------------------ 启动 */
@@ -1150,14 +1159,18 @@
     } catch {
       $('balance').textContent = '-- 次请求';
     }
-    const total = (state.cfg && Number(state.cfg.historyLimit)) || 24;
-    const used = state.chatId && state._chatMessages
-      ? state._chatMessages.length
-      : 0;
-    $('ctxText').textContent = `上下文 ${used} / ${total} 条`;
+    // 上下文按 token 容量显示，不再数消息条数
+    const key = String((state.cfg && state.cfg.contextLength) || draft.ctxLength || '256k').toLowerCase();
+    const total = CTX_TOKENS[key] || CTX_TOKENS['256k'];
+    // used 用最近一次 /api/context 的结果（那才是真 token 估算）；没有就 0
+    const used = state.contextUsed || 0;
+    $('ctxText').textContent = `上下文 ${fmtTokens(used)} / ${key.toUpperCase()}`;
     $('ctxFill').style.width = total > 0
       ? `${Math.min(100, Math.round((used / total) * 100))}%`
       : '0%';
+    // 输入栏那个开关也跟着显示当前档位
+    const ctxLabel = document.querySelector('#ctxSwitch .model-switch-current');
+    if (ctxLabel) ctxLabel.textContent = key.toUpperCase();
   }
 
   /* ------------------------------------------------------------ 模型列表 */
@@ -1254,7 +1267,7 @@
           mcVersion: draft.mcVersion || (state.cfg && state.cfg.mcVersion) || '1.21.1',
           loader: draft.loader,
           reasoningEffort: draft.effort,
-          historyLimit: draft.ctxLimit,
+          contextLength: draft.ctxLength,
         }),
       });
       state.cfg = await api('/api/config');
@@ -1532,17 +1545,18 @@
     const ctx = make('select');
     CTX_CHOICES.forEach((item) => {
       const opt = make('option', null, `${item.name} · ${item.note}`);
-      opt.value = String(item.id);
+      opt.value = item.id;
       ctx.appendChild(opt);
     });
-    ctx.value = String(draft.ctxLimit);
+    ctx.value = draft.ctxLength;
 
     const g1 = make('label', 'set-field');
     g1.appendChild(make('span', null, '思考深度'));
     g1.appendChild(effort);
     const g2 = make('label', 'set-field');
-    g2.appendChild(make('span', null, '上下文条数'));
+    g2.appendChild(make('span', null, '上下文长度'));
     g2.appendChild(ctx);
+    g2.appendChild(make('small', null, '按 token 算，超了就从最早的消息开始丢'));
     grid.appendChild(g1);
     grid.appendChild(g2);
 
@@ -1566,7 +1580,7 @@
         baseUrl: baseUrl.value.trim(),
         model: model.value.trim(),
         reasoningEffort: effort.value,
-        historyLimit: Number(ctx.value) || 24,
+        contextLength: ctx.value || '256k',
         apiTimeoutSec: Number(timeout.value) || 180,
         gradleCmd: gradle.value.trim(),
         imageBaseUrl: imgBase.value.trim(),
@@ -1611,14 +1625,19 @@
     try {
       state.cfg = await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
       draft.effort = body.reasoningEffort || draft.effort;
-      draft.ctxLimit = body.historyLimit || draft.ctxLimit;
+      draft.ctxLength = body.contextLength || draft.ctxLength;
       store.set('effort', draft.effort);
-      store.set('ctxLimit', draft.ctxLimit);
+      store.set('ctxLength', draft.ctxLength);
+      document.querySelector('#ctxSwitch .model-switch-current').textContent =
+        String(draft.ctxLength).toUpperCase();
       closeModal('settingsDialog');
       toast('已保存到 config.json', 'good');
       await loadModels();
       paintReady();
       refreshUsage();
+      // 容量变了，用量弹窗跟着重算
+      api(`/api/context?chatId=${encodeURIComponent(state.chatId || '')}`)
+        .then(paintUsage).catch(() => {});
     } catch (e) {
       toast(e.message || '没存上', 'bad');
     }
@@ -1691,6 +1710,14 @@
 
   function paintUsage(data) {
     const fmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 });
+    // 顶栏那条也用这个数，别再按消息条数算
+    state.contextUsed = Number(data.used) || 0;
+    const capKey = String((state.cfg && state.cfg.contextLength) || draft.ctxLength || '256k').toLowerCase();
+    const cap = CTX_TOKENS[capKey] || CTX_TOKENS['256k'];
+    $('ctxText').textContent = `上下文 ${fmtTokens(state.contextUsed)} / ${capKey.toUpperCase()}`;
+    $('ctxFill').style.width = cap > 0
+      ? `${Math.min(100, (state.contextUsed / cap) * 100)}%`
+      : '0%';
     $('usagePct').textContent = `${data.pct.toFixed(1)}%`;
     $('usageUsed').textContent = `已使用  ${fmt(data.used)} / ${fmt(data.limit)}`;
 
@@ -1988,23 +2015,22 @@
     });
 
     bindSwitch('#ctxSwitch', async () => CTX_CHOICES.map((item) => ({
-      id: String(item.id), name: `${item.name} · ${item.note}`,
+      id: item.id, name: `${item.name} · ${item.note}`,
     })), async (id) => {
-      draft.ctxLimit = Number(id) || 24;
-      store.set('ctxLimit', draft.ctxLimit);
-      document.querySelector('#ctxSwitch .model-switch-current').textContent = `${draft.ctxLimit} 条`;
-      // 改完之后立刻让 ctxText / 用量详情用新值（之前写死 0 / 选中的限制，
-      // 选完连本会话已经累积的消息数都没重新算，看着像"没变"）
+      draft.ctxLength = CTX_TOKENS[id] ? id : '256k';
+      store.set('ctxLength', draft.ctxLength);
+      document.querySelector('#ctxSwitch .model-switch-current').textContent =
+        draft.ctxLength.toUpperCase();
       try {
         state.cfg = await api('/api/config', {
-          method: 'POST', body: JSON.stringify({ historyLimit: draft.ctxLimit }),
+          method: 'POST', body: JSON.stringify({ contextLength: draft.ctxLength }),
         });
       } catch { /* 静默 */ }
       refreshUsage();
-      // 同时让用量详情弹窗的容量跟着刷新
+      // 容量变了，用量详情弹窗跟着重算
       api(`/api/context?chatId=${encodeURIComponent(state.chatId || '')}`)
         .then(paintUsage).catch(() => {});
-      toast('上下文条数已改', 'good');
+      toast(`上下文长度改成 ${draft.ctxLength.toUpperCase()}`, 'good');
     });
 
     // 构建环境徽章：菜单里可以直接编译或跳设置

@@ -49,6 +49,10 @@ const DEFAULT_CONFIG = {
   maxTokens: 32768,
   reasoningEffort: 'off',
   reasoningStyle: 'auto',
+  // 上下文长度：256k 或 1m（token 预算）。打包历史时按这个截断，
+  // 比「多少条消息」直观——一条工具回执可能顶几十条对话。
+  contextLength: '256k',
+  // 条数兜底：再怎么着也不超过这么多条消息
   historyLimit: 36,
   apiTimeoutSec: 180,
   // 上游 429/5xx 最多重试几次
@@ -805,12 +809,42 @@ function thinToolContent(raw, toolName, toolPath) {
   return `（历史回执已压缩）${toolName || 'tool'} 结果约 ${s.length} 字，需要时请重调工具。`;
 }
 
+/* 上下文长度档位：主人嫌「16 条 / 64 条」看不懂，直接按 token 给两档 */
+const CONTEXT_TOKENS = {
+  '256k': 256 * 1024,
+  '1m': 1024 * 1024,
+};
+
+function contextBudget(cfg) {
+  const key = String(cfg && cfg.contextLength || '256k').toLowerCase();
+  return CONTEXT_TOKENS[key] || CONTEXT_TOKENS['256k'];
+}
+
+/** 粗估 token：中文 1 字 ≈ 1，英文 1 字 ≈ 0.25，统一按字符 / 2 折 */
+function estTokens(text) {
+  return Math.ceil(String(text || '').length / 2);
+}
+
 function toApiMessages(chat, cfg) {
   const src = chat.messages || [];
   const lastUser = [...src].reverse().find((m) => m.role === 'user')?.content || '';
   const out = [{ role: 'system', content: systemPrompt(cfg, chat.project || 'default', lastUser) }];
+  // 先按条数兜底，再按 token 预算从后往前缩
   const BUDGET = Math.max(8, Number(cfg.historyLimit) || 36);
   let start = Math.max(0, src.length - BUDGET);
+  // 预留三成给系统提示 + 本轮回复，剩下的才是历史能吃的额度
+  const tokenCap = Math.floor(contextBudget(cfg) * 0.7) - estTokens(out[0].content || '');
+  let spent = 0;
+  for (let i = src.length - 1; i >= start; i -= 1) {
+    const m = src[i];
+    const cost = estTokens(m?.content) + (m?.tool_calls
+      ? m.tool_calls.reduce((s, tc) => s + estTokens(tc.args || tc.arguments), 0) : 0);
+    if (spent + cost > tokenCap && i < src.length - 1) {
+      start = i + 1;
+      break;
+    }
+    spent += cost;
+  }
   while (start > 0 && src[start]?.role === 'tool') start -= 1;
 
   // tool_call_id → 工具名/路径，便于瘦身时写清楚压的是哪个文件
@@ -866,7 +900,8 @@ function toPascal(id) {
 /** 上下文用量分类：中文 1 字约 1 token，英文 1 字约 0.25 token；
  * 粗估统一按字符/2 算 token，分到 4 类让前端照主站那张饼图 */
 function buildContextReport(chat, cfg) {
-  const limit = Math.max(1024, Number(cfg.maxTokens) || 32768);
+  // 容量按主人选的上下文长度档位（256K / 1M），不再用 maxTokens
+  const limit = contextBudget(cfg);
   const sysText = systemPrompt(cfg, chat.project || 'default', '');
   let sysTokens = 0;
   if (typeof sysText === 'string') sysTokens = Math.ceil(sysText.length / 2);
