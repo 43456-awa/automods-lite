@@ -90,7 +90,7 @@ v0.5.0 期间的提交（`faa0c5c` → `1d364e7`）：
 | `911f8cf` | 弹窗加「立即更新」按钮 |
 | `dd3a740` | update.bat 文件清单还停在 0.3.x（更新完前端样式会全丢） |
 | `c3ad574` | update.ps1 补 UTF-8 BOM |
-| `f40d74a` | update.bat 自举（老版本没 ps1 也能更新） |
+| `f40d74a` | update.bat 自举（新版没 ps1 也能更新；**老版仍会写坏，见 3.9**） |
 | `c0695bf` | 干活的脚本挪进 tools/（根目录两个文件容易点错） |
 | `ece02ed` | update.bat 去掉所有中文（cmd 按 GBK 解析会吃掉引号） |
 | `1d364e7` | tools/update-core.ps1 算错项目根（把代码复制进了 tools/） |
@@ -235,9 +235,45 @@ tools/update-core.ps1           ← 真正干活的（藏在子目录，避免�
 
 ### 自举
 
-老版本（0.3.x / 0.4.0）里**没有 `tools/update-core.ps1`**。所以 `update.bat` 发现
-脚本缺失时，会先用 `curl` 从 jsDelivr 拉下来（失败退到 raw.githubusercontent），
-再继续更新。**这样对方只要有一个 `update.bat` 就能完成整个更新。**
+**新版**（0.5.0 起）的 `update.bat` 里没有 `tools/update-core.ps1` 时会自己
+`curl` 下来（jsDelivr → raw.githubusercontent），再交给 PowerShell 干整包更新。
+它**只下载 `update-core.ps1`，不下载自己**，所以是安全的。
+
+### ⚠️⚠️ 老版 `update.bat` 会把副本写坏（2026-09-17 实测，务必先看）
+
+**原来这里写「对方只要有一个 `update.bat` 就能完成整个更新」是错的。**
+0.3.x / 0.4.0 那份 `update.bat` 走的是另一套逻辑，它会 `call :get update.bat`
+**把正在运行的自己覆盖掉** —— 而 cmd.exe 是按**字节偏移**逐行读 `.bat` 的，
+文件在脚下被换成长度完全不同的新内容后，偏移就错位了，后面每个
+`call :get <名>` 都读到错误的位置，于是**文件内容被写进别的文件名**。
+
+实测（`git archive 518aefb` 还原一份 0.4.0，跑它自带的 `update.bat`）：
+
+| 文件 | 正确的 0.4.0 尺寸 | 跑完后 | 实际装进去的内容 |
+|---|---|---|---|
+| `server.js` | 102510 | **2703** | 新版 `update.bat` 的正文 |
+| `learn.mjs` | 9486 | **118140** | 仓库里 `server.js` 的正文 |
+| `package.json` | 320 | **5466** | 另一个文件的正文 |
+
+跑完就是一份彻底报废的副本（`server.js` 只剩 2.7 KB 的 bat 文本，服务根本起不来）。
+日志里还会出现 `FAILED boot.js` / `FAILED update.bat` 这种先兆。
+
+**给老副本的正确更新方式（已实测通过，exit=0）**：
+
+1. **只手动替换 `update.bat` 这一个文件**，内容取自
+   `https://cdn.jsdelivr.net/gh/43456-awa/automods-lite@main/update.bat`
+   （或从 GitHub 下整包 ZIP 解压覆盖）
+2. 再双击这个新 `update.bat` —— 它不下载自己，会正常拉 `update-core.ps1`
+   并做整包覆盖
+
+实测结果：`server.js` 118140 字节且含新修复、`package.json` / `update.json`
+都是 `0.5.1`、`public/vendor/` 10 个文件完好、`config.json` 一个字没动。
+
+**或者更省事**：直接下 GitHub 的整包 ZIP 解压覆盖整个文件夹
+（ZIP 里没有 `config.json` / `workspace/` / `chats/`，所以这些不会被覆盖）。
+
+> 教训：**给非技术用户的自动更新脚本，绝不能让它下载它自己。**
+> cmd.exe 按字节偏移解析 `.bat`，自我覆盖 = 偏移错位 = 文件错位写坏。
 
 ### 更新范围
 
@@ -522,6 +558,8 @@ node boot.js
   退出码 1 就是 3.12 那个流没收尾的回归
 - 改过 `server.js` 后**必须重启服务**（`启动.bat` / `node boot.js`），
   改过 `public/app.js` 后**必须强刷浏览器**，否则看到的还是旧行为
+- **跑完更新脚本后服务起不来 / 文件尺寸明显变小**：多半是老版 `update.bat`
+  把副本写坏了（见 3.9），按那里的正确步骤重来一遍
 
 **冒烟一次**
 
@@ -563,6 +601,10 @@ git -c http.proxy=http://127.0.0.1:10808 -c https.proxy=http://127.0.0.1:10808 p
 
 改完 `update.bat` / `tools/update-core.ps1` 后**必须先 push 再让别人跑** ——
 否则对方自更新时会被仓库里的旧版覆盖回去。
+
+> **前提是对方那份的 `update.bat` 已经是新版（0.5.0 起）。**
+> 对方若还停在 0.3.x / 0.4.0，**先让他把 `update.bat` 换成新的单文件再跑**，
+> 否则会按 3.9 那条把副本写坏。
 
 ---
 
