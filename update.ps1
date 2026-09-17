@@ -1,4 +1,4 @@
-# automods-lite 一键更新
+﻿# automods-lite 一键更新
 #
 # 从 GitHub 拉最新代码覆盖过去，只动代码，不动用户数据：
 #   config.json（密钥与模型）、workspace/（工程）、chats/（对话）、usage.json（用量）
