@@ -227,6 +227,20 @@
       } else if (location.search.includes('usage=1')) {
         setTimeout(() => openUsageDetail(), 600);
       }
+
+      /* ?autosend=<文本> —— 加载完自动发一句，用来复现「内容是否实时渲染」。
+       * 调试用，正常访问不会触发。没有项目时顺手把构建配置弹窗也确认掉。 */
+      const auto = new URLSearchParams(location.search).get('autosend');
+      if (auto) {
+        setTimeout(async () => {
+          if (state.chatId) {
+            runChat(auto);
+            return;
+          }
+          openSetup(auto);
+          setTimeout(() => $('setupConfirm').click(), 400);
+        }, 1200);
+      }
     } else {
       $('loginView').hidden = false;
     }
@@ -502,7 +516,7 @@
     const head = make('summary');
     head.appendChild(make('i', 'hx-live'));
     head.appendChild(make('b', null, '正在制作'));
-    const now = make('small', 'hx-now', '正在准备工作台…');
+    const now = make('small', 'hx-now', '正在连接模型…');
     head.appendChild(now);
     head.appendChild(make('span', 'grow'));
     const tier = make('small', 'hx-run-model', state.cfg && state.cfg.model ? state.cfg.model : '');
@@ -626,6 +640,12 @@
     state.pendingTool = new Map();
     setRunState('制作中', true);
 
+    /* 先摆一张「正在制作」的卡再发请求。
+     * 之前卡片是等第一个 think/tool 事件才建的，而模型开头那几十秒只在
+     * 憋思考（只有 status 事件），页面上就一片空白 —— 用户以为卡死了，
+     * 得切出去再进来才看得到内容。 */
+    workCard();
+
     let res;
     try {
       res = await fetch('/api/chat', {
@@ -683,10 +703,16 @@
     setRunState('空闲', false);
     updateBlank(); // 这一轮结束了，资产栏按「有对话」的状态摆
     if (state.work) {
-      state.work._head.textContent = '制作记录';
-      state.work._now.textContent = `${state.steps} 步 · 点开看它都做了什么`;
       const live = state.work.querySelector('.hx-live');
       if (live) live.remove();
+      if (state.steps === 0) {
+        // 一步都没跑成（比如一上来就报错），留张空卡反而误导，撤掉
+        const wrap = state.work.closest('.hx-turn');
+        if (wrap) wrap.remove();
+      } else {
+        state.work._head.textContent = '制作记录';
+        state.work._now.textContent = `${state.steps} 步 · 点开看它都做了什么`;
+      }
       state.work = null;
     }
     loadChats().catch(() => {});
@@ -709,7 +735,10 @@
         break;
 
       case 'status':
-        if (state.work) state.work._now.textContent = event.text;
+        // 卡片可能还没建（任务刚开头只有 status，没有 think/tool）——
+        // 这时候如果什么都不做，页面上就是一片空白，看着像卡死了
+        if (!state.work) workCard();
+        state.work._now.textContent = event.text;
         break;
 
       case 'think_delta': {
