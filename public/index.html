@@ -425,6 +425,19 @@
     </section>
   </div>
 
+  <!-- 预览台里点开一格看详情 -->
+  <div class="modal bench-dialog" id="benchDialog" role="dialog" aria-modal="true"
+       aria-labelledby="benchDialogTitle" hidden>
+    <section>
+      <header class="bench-dialog-head">
+        <h2 id="benchDialogTitle">详情</h2>
+        <button class="usage-close" id="benchDialogClose" type="button" aria-label="关闭">×</button>
+      </header>
+      <div class="bench-dialog-body" id="benchDialogBody"></div>
+      <footer class="modal-actions" id="benchDialogFoot"></footer>
+    </section>
+  </div>
+
   <template id="tipTemplate">
     <div class="hx-tipcard" role="note">
       <i aria-hidden="true">💡</i>

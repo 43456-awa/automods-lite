@@ -550,6 +550,235 @@
   color: var(--text-muted);
 }
 
+/* 预览台的格子 / 配方行现在可以点开看详情 */
+.bench-tile[role="button"],
+.bench-recipe[role="button"] {
+  cursor: pointer;
+}
+
+.bench-tile[role="button"]:hover {
+  border-color: var(--accent-border);
+  background: var(--surface-hover);
+}
+
+.bench-tile[role="button"]:focus-visible,
+.bench-recipe[role="button"]:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.bench-recipe[role="button"]:hover {
+  background: var(--surface-hover);
+}
+
+/* ---------------- 预览台详情弹窗 ---------------- */
+
+.bench-dialog section {
+  width: min(560px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.bench-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bench-dialog-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.bench-dialog-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px;
+}
+
+.bench-detail-top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.bench-detail-preview {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.bench-detail-preview img {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  cursor: zoom-in;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* 透明底棋盘格 */
+  background-color: var(--checker-b);
+  background-image:
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%, transparent 75%, var(--checker-a) 75%),
+    linear-gradient(45deg, var(--checker-a) 25%, transparent 25%, transparent 75%, var(--checker-a) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.bench-detail-preview small {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 110px;
+}
+
+.bench-detail-blank {
+  width: 96px;
+  height: 96px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.bench-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.bench-field {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--border-subtle);
+  font-size: 12.5px;
+}
+
+.bench-field > span {
+  flex: none;
+  width: 64px;
+  color: var(--text-muted);
+}
+
+.bench-field > b {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.bench-section {
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.bench-detail-recipe {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.bench-file-list,
+.bench-mat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bench-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.bench-file-icon {
+  flex: none;
+  width: 22px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.bench-file > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.bench-file b {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bench-file small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bench-mat {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: 12.5px;
+}
+
+.bench-mat i {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.bench-mat b {
+  flex: 1;
+  font-weight: 600;
+}
+
+.bench-mat small {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+}
+
 /* ---------------- 上下文用量详情弹窗 ---------------- */
 
 .usage-dialog section {

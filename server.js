@@ -542,7 +542,9 @@ async function scanBench(root) {
   // lang 文件剥出 item.* / block.* → {id, name, nameEn}
   const lang = {};
   const langEn = {};
-  for (const file of ['zh_cn.json', 'zh_cn.lang', 'en_us.json', 'en_us.lang']) {
+  /* 中文表和英文表要分开读：之前第一个循环把 en_us 也 assign 进 lang，
+   * 而 en_us 在数组里靠后，直接把中文名覆盖成了英文。 */
+  for (const file of ['zh_cn.json', 'zh_cn.lang']) {
     const text = await readTextSafe(path.join(modDir, 'lang', file));
     if (!text) continue;
     try {
@@ -678,9 +680,18 @@ async function scanBench(root) {
         // 显式声明 shapeless 才是无序，其它（有 pattern 或 type 是 shaped）都算有序
         shaped: json.type !== 'minecraft:crafting_shapeless',
         pattern: Array.isArray(json.pattern) ? json.pattern.slice() : [],
-        // 把键剥前缀方便前端按 ID 查
-        keys: Object.fromEntries(Object.entries(json.key || {}).map(([k, v]) => [
-          k, String(v).replace(/^[^:]+:/, ''),
+        /* 键剥前缀方便前端按 ID 查。
+         * MC 1.21+ 的 key 值是对象（{"item":"minecraft:blaze_rod"}），
+         * 1.20- 是字符串（"minecraft:blaze_rod"）；标签写成 "#minecraft:planks"。
+         * 之前只当字符串处理，1.21 的配方全变成 "[object Object]"。 */
+        keys: Object.fromEntries(Object.entries(json.key || {}).map(([k, v]) => {
+          const raw = typeof v === 'string'
+            ? v
+            : (v && (v.item || v.id || v.tag)) || '';
+          return [k, String(raw).replace(/^#/, '').replace(/^[^:]+:/, '')];
+        })),
+        keyTags: Object.fromEntries(Object.entries(json.key || {}).map(([k, v]) => [
+          k, Boolean((typeof v === 'object' && v && v.tag) || String(v).startsWith('#')),
         ])),
       });
     }

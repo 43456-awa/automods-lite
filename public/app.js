@@ -216,6 +216,13 @@
         selectChat(wantChat).then(() => {
           if (location.search.includes('usage=1')) openUsageDetail();
           if (location.search.includes('buildenv=1')) openBuildEnvMenu();
+          // ?benchid=<物品id> 直接摊开那一格的详情
+          const wantBench = new URLSearchParams(location.search).get('benchid');
+          if (wantBench) {
+            const entry = ((state.benchData && state.benchData.entries) || [])
+              .find((e) => e.id === wantBench);
+            if (entry) openBenchDetail(entry);
+          }
         }).catch(() => toast('这个项目打不开', 'bad'));
       } else if (location.search.includes('usage=1')) {
         setTimeout(() => openUsageDetail(), 600);
@@ -815,7 +822,8 @@
       state.files = data.files || [];
       state.releases = data.releases || [];
       renderAssets();
-      loadBench().catch(() => mountBench(null));
+      // 等预览台数据一起就位，selectChat 之后 state.benchData 才是准的
+      await loadBench().catch(() => mountBench(null));
     } catch {
       if (force) toast('产物列表没拉到', 'bad');
       mountBench(null);
@@ -1015,6 +1023,8 @@
     const grid = make('div', 'bench-grid');
     list.forEach((entry) => {
       const tile = make('div', `bench-tile${entry.hasIcon ? '' : ' no-icon'}`);
+      tile.setAttribute('role', 'button');
+      tile.tabIndex = 0;
       const url = entry.hasIcon
         ? `/dl/${encodeURIComponent(state.project)}/${entry.icon.split('/').map(encodeURIComponent).join('/')}`
         : '';
@@ -1028,11 +1038,17 @@
           : entry.kind === 'block' ? '◻' : '◇';
         tile.appendChild(make('div', 'glyph', glyph));
       }
-      const label = entry.kind === 'both'
-        ? `${entry.name} · 物&方`
-        : entry.kind === 'block' ? `${entry.name} · 方` : `${entry.name} · 物`;
       tile.appendChild(make('b', null, entry.name));
-      tile.title = entry.nameEn ? `${entry.id} · ${entry.nameEn}` : entry.id;
+      tile.title = entry.nameEn
+        ? `${entry.id} · ${entry.nameEn}（点开看详情）`
+        : `${entry.id}（点开看详情）`;
+      tile.onclick = () => openBenchDetail(entry);
+      tile.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openBenchDetail(entry);
+        }
+      };
       grid.appendChild(tile);
     });
     body.appendChild(grid);
@@ -1047,42 +1063,23 @@
     (entries || []).forEach((entry) => lookup.set(entry.id, entry));
     list.forEach((recipe) => {
       const row = make('div', 'bench-recipe');
-      const grid = make('div', 'bench-recipe-grid');
-      const grid3 = [['', '', ''], ['', '', ''], ['', '', '']];
-      if (recipe.pattern && recipe.pattern.length) {
-        recipe.pattern.forEach((line, rowIndex) => {
-          if (rowIndex >= 3) return;
-          for (let col = 0; col < 3 && col < line.length; col += 1) {
-            const symbol = line[col] === ' ' ? '' : line[col];
-            grid3[rowIndex][col] = symbol;
-          }
-        });
-      } else if (recipe.keys) {
-        // 无序配方只列材料，不摆位置
-        grid3[1][1] = '';
-      }
-      for (let r = 0; r < 3; r += 1) {
-        for (let c = 0; c < 3; c += 1) {
-          const sym = grid3[r][c];
-          const cell = make('div', 'slot');
-          if (sym && recipe.keys && recipe.keys[sym]) {
-            const fullId = String(recipe.keys[sym]).replace(/^[^:]+:/, '');
-            cell.classList.add('has');
-            cell.textContent = lookup.get(fullId)?.name?.slice(0, 4) || fullId.slice(0, 4);
-            cell.title = fullId;
-          } else if (sym) {
-            cell.textContent = sym;
-          }
-          grid.appendChild(cell);
-        }
-      }
-      row.appendChild(grid);
+      renderRecipeGrid(row, recipe, entries); // 和详情弹窗共用同一套格子
       row.appendChild(make('span', 'bench-arrow', '→'));
       const info = make('div');
-      info.appendChild(make('b', null, recipe.out));
+      info.appendChild(make('b', null, materialLabel(recipe.out, lookup)));
       info.appendChild(make('small', null,
         `${recipe.shaped ? '有序' : '无序'} · 出 ${recipe.count}`));
       row.appendChild(info);
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      row.title = '点开看这个配方的材料清单';
+      row.onclick = () => openRecipeDetail(recipe);
+      row.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openRecipeDetail(recipe);
+        }
+      };
       body.appendChild(row);
     });
   }
@@ -1095,12 +1092,275 @@
     const grid = make('div', 'bench-grid');
     list.forEach((rel) => {
       const tile = make('div', 'bench-tile');
+      tile.setAttribute('role', 'button');
+      tile.tabIndex = 0;
       tile.appendChild(make('div', 'glyph', '{}'));
       tile.appendChild(make('b', null, rel.split('/').pop().replace(/\.json$/, '')));
-      tile.title = rel;
+      tile.title = `${rel}（点开看 JSON）`;
+      tile.onclick = () => openModelDetail(rel);
+      tile.onkeydown = (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openModelDetail(rel);
+        }
+      };
       grid.appendChild(tile);
     });
     body.appendChild(grid);
+  }
+
+  /* ---------------- 预览台：点开一格看详情 ---------------- */
+
+  /* 配方里大量用到原版材料，这些不在本模组里、查不到显示名，
+     只写 id 不好读。挑常用的做个对照。 */
+  const VANILLA_NAMES = {
+    stick: '木棍', blaze_rod: '烈焰棒', coal: '煤炭', charcoal: '木炭',
+    iron_ingot: '铁锭', gold_ingot: '金锭', copper_ingot: '铜锭',
+    netherite_ingot: '下界合金锭', iron_nugget: '铁粒', gold_nugget: '金粒',
+    diamond: '钻石', emerald: '绿宝石', lapis_lazuli: '青金石', quartz: '下界石英',
+    redstone: '红石', amethyst_shard: '紫水晶碎片', nether_star: '下界之星',
+    string: '线', leather: '皮革', feather: '羽毛', flint: '燧石', paper: '纸',
+    book: '书', gunpowder: '火药', glowstone_dust: '萤石粉', slime_ball: '黏液球',
+    ender_pearl: '末影珍珠', wheat: '小麦', sugar: '糖', bone_meal: '骨粉',
+    clay_ball: '黏土球', brick: '红砖', nether_brick: '下界砖',
+    oak_planks: '橡木木板', spruce_planks: '云杉木板', birch_planks: '白桦木板',
+    cobblestone: '圆石', stone: '石头', glass: '玻璃', sand: '沙子',
+    oak_log: '橡木原木', obsidian: '黑曜石', torch: '火把',
+  };
+
+  /** 配方格子里显示什么：本模组名 > 原版中文名 > 原 id */
+  function materialLabel(id, lookup) {
+    const clean = String(id || '').replace(/^[^:]+:/, '');
+    return (lookup && lookup.get(clean)?.name) || VANILLA_NAMES[clean] || clean;
+  }
+
+  /** 工程里某个 id 关联的所有文件（模型 / 贴图 / blockstate / 配方 / 语言） */
+  function relatedFilesOf(id) {
+    const files = state.files || [];
+    const hit = new RegExp(`/${id}\\.(json|png)$`, 'i');
+    return files.filter((f) => hit.test(f.path));
+  }
+
+  function dlHref(path) {
+    return `/dl/${encodeURIComponent(state.project)}/${String(path).split('/').map(encodeURIComponent).join('/')}`;
+  }
+
+  /** 详情弹窗里的一行文件：图标 + 名字 + 路径 + 下载 */
+  function fileRow(file, note) {
+    const row = make('div', 'bench-file');
+    row.appendChild(make('i', 'bench-file-icon', fileGlyph(file.path.split('/').pop())));
+    const body = make('div');
+    body.appendChild(make('b', null, file.path.split('/').pop()));
+    body.appendChild(make('small', null, note || `${file.path} · ${size(file.size)}`));
+    body.title = file.path;
+    row.appendChild(body);
+    const get = make('button', 'asset-get', '↓');
+    get.type = 'button';
+    get.title = '下载这个文件';
+    get.onclick = () => { window.location.href = dlHref(file.path); };
+    row.appendChild(get);
+    return row;
+  }
+
+  /** 详情弹窗的公共外壳 */
+  function openBenchDialog(title, buildBody, actions) {
+    $('benchDialogTitle').textContent = title;
+    const body = $('benchDialogBody');
+    body.textContent = '';
+    buildBody(body);
+    const foot = $('benchDialogFoot');
+    foot.textContent = '';
+    (actions || []).forEach((btn) => foot.appendChild(btn));
+    openModal('benchDialog');
+  }
+
+  function benchButton(label, primary, onclick) {
+    const btn = make('button', primary ? 'primary' : null, label);
+    btn.type = 'button';
+    btn.onclick = onclick;
+    return btn;
+  }
+
+  /** 点资产格子：贴图大图 + 信息 + 相关文件 + 配方 */
+  function openBenchDetail(entry) {
+    const kindText = entry.kind === 'both' ? '方块 + 物品'
+      : entry.kind === 'block' ? '方块' : '物品';
+    const recipe = (state.benchData && state.benchData.recipes || [])
+      .find((r) => r.out === entry.id);
+    const related = relatedFilesOf(entry.id);
+
+    openBenchDialog(entry.name || entry.id, (body) => {
+      const top = make('div', 'bench-detail-top');
+
+      // 左：贴图预览（棋盘格衬透明）
+      const preview = make('div', 'bench-detail-preview');
+      if (entry.hasIcon) {
+        const img = new Image();
+        img.src = dlHref(entry.icon);
+        img.alt = entry.id;
+        preview.appendChild(img);
+        preview.appendChild(make('small', null, '贴图预览（点图可放大看原尺寸）'));
+        img.onclick = () => window.open(dlHref(entry.icon), '_blank');
+      } else {
+        preview.appendChild(make('div', 'bench-detail-blank', '还没有贴图'));
+        preview.appendChild(make('small', null, '可以用贴图工坊生成一张'));
+      }
+      top.appendChild(preview);
+
+      // 右：字段
+      const info = make('div', 'bench-detail-info');
+      const field = (k, v) => {
+        const row = make('div', 'bench-field');
+        row.appendChild(make('span', null, k));
+        row.appendChild(make('b', null, v));
+        info.appendChild(row);
+      };
+      field('标识', entry.id);
+      field('类型', kindText);
+      field('中文名', entry.name || '—');
+      if (entry.nameEn) field('英文名', entry.nameEn);
+      if (entry.hasState !== undefined) field('blockstate', entry.hasState ? '有' : '缺');
+      field('相关文件', `${related.length} 个`);
+      top.appendChild(info);
+      body.appendChild(top);
+
+      // 配方
+      if (recipe) {
+        body.appendChild(make('p', 'bench-section', '合成配方'));
+        const wrap = make('div', 'bench-detail-recipe');
+        renderRecipeGrid(wrap, recipe, state.benchData.entries || []);
+        wrap.appendChild(make('span', 'bench-arrow', '→'));
+        const out = make('div');
+        out.appendChild(make('b', null, recipe.out));
+        out.appendChild(make('small', null, `· 出 ${recipe.count}`));
+        wrap.appendChild(out);
+        body.appendChild(wrap);
+      }
+
+      // 相关文件
+      body.appendChild(make('p', 'bench-section', '相关文件'));
+      if (!related.length) {
+        body.appendChild(make('p', 'bench-empty', '还没写出文件'));
+      } else {
+        const list = make('div', 'bench-file-list');
+        related.forEach((f) => list.appendChild(fileRow(f)));
+        body.appendChild(list);
+      }
+    }, [
+      !entry.hasIcon
+        ? benchButton('去贴图工坊生成贴图', true, () => {
+          window.location.href = `/texture.html?project=${encodeURIComponent(state.project)}`;
+        })
+        : benchButton('下载这张贴图', true, () => {
+          window.location.href = dlHref(entry.icon);
+        }),
+      benchButton('下载整包', false, () => {
+        window.location.href = `/api/zip?project=${encodeURIComponent(state.project)}`;
+      }),
+      benchButton('关闭', false, () => closeModal('benchDialog')),
+    ]);
+  }
+
+  /** 3×3 配方网格，材料和成品都查显示名 */
+  function renderRecipeGrid(host, recipe, entries) {
+    const lookup = new Map();
+    (entries || []).forEach((e) => lookup.set(e.id, e));
+    const grid3 = [['', '', ''], ['', '', ''], ['', '', '']];
+    if (recipe.pattern && recipe.pattern.length) {
+      recipe.pattern.forEach((line, r) => {
+        if (r >= 3) return;
+        for (let c = 0; c < 3 && c < line.length; c += 1) {
+          grid3[r][c] = line[c] === ' ' ? '' : line[c];
+        }
+      });
+    }
+    const grid = make('div', 'bench-recipe-grid');
+    for (let r = 0; r < 3; r += 1) {
+      for (let c = 0; c < 3; c += 1) {
+        const sym = grid3[r][c];
+        const cell = make('div', 'slot');
+        if (sym && recipe.keys && recipe.keys[sym]) {
+          const fullId = String(recipe.keys[sym]).replace(/^[^:]+:/, '');
+          const isTag = recipe.keyTags && recipe.keyTags[sym];
+          const label = materialLabel(fullId, lookup);
+          cell.classList.add('has');
+          cell.textContent = label.slice(0, 3);
+          cell.title = isTag ? `${label}（标签，同类材料都行）` : label;
+        } else if (sym) {
+          cell.textContent = sym;
+        }
+        grid.appendChild(cell);
+      }
+    }
+    host.appendChild(grid);
+  }
+
+  /** 点配方：材料清单 + 成品 + 用到哪些原版材料 */
+  function openRecipeDetail(recipe) {
+    const entries = (state.benchData && state.benchData.entries) || [];
+    const lookup = new Map();
+    entries.forEach((e) => lookup.set(e.id, e));
+    const outEntry = lookup.get(recipe.out);
+
+    openBenchDialog(`配方 · ${outEntry?.name || recipe.out}`, (body) => {
+      const wrap = make('div', 'bench-detail-recipe');
+      renderRecipeGrid(wrap, recipe, entries);
+      wrap.appendChild(make('span', 'bench-arrow', '→'));
+      const out = make('div');
+      out.appendChild(make('b', null, outEntry?.name || recipe.out));
+      out.appendChild(make('small', null, `${recipe.out} · 出 ${recipe.count}`));
+      wrap.appendChild(out);
+      body.appendChild(wrap);
+
+      body.appendChild(make('p', 'bench-section', '需要的材料'));
+      const list = make('div', 'bench-mat-list');
+      Object.entries(recipe.keys || {}).forEach(([sym, raw]) => {
+        const id = String(raw).replace(/^[^:]+:/, '');
+        const known = lookup.get(id);
+        const row = make('div', 'bench-mat');
+        row.appendChild(make('i', null, sym));
+        row.appendChild(make('b', null, known?.name || id));
+        row.appendChild(make('small', null, raw));
+        list.appendChild(row);
+      });
+      if (!Object.keys(recipe.keys || {}).length) {
+        list.appendChild(make('p', 'bench-empty', '这个配方没写材料表'));
+      }
+      body.appendChild(list);
+
+      body.appendChild(make('p', 'bench-section', '配方文件'));
+      const file = (state.files || []).find((f) => f.path.includes(`/${recipe.id}.json`));
+      if (file) body.appendChild(fileRow(file));
+      else body.appendChild(make('p', 'bench-empty', `找不到 ${recipe.id}.json`));
+    }, [
+      benchButton('关闭', true, () => closeModal('benchDialog')),
+    ]);
+  }
+
+  /** 点模型：读 JSON 内容看结构 */
+  async function openModelDetail(rel) {
+    const modid = (state.benchData && state.benchData.modid) || 'mymod';
+    const path = `src/main/resources/assets/${modid}/models/${rel}`;
+    openBenchDialog(rel.split('/').pop(), (body) => {
+      body.appendChild(make('p', 'bench-empty', '正在读…'));
+    }, [benchButton('关闭', true, () => closeModal('benchDialog'))]);
+    try {
+      const data = await api(`/api/file?project=${encodeURIComponent(state.project)}&path=${encodeURIComponent(path)}`);
+      const body = $('benchDialogBody');
+      body.textContent = '';
+      body.appendChild(make('p', 'bench-section', path));
+      body.appendChild(make('pre', 'build-log', data.content));
+      const foot = $('benchDialogFoot');
+      foot.textContent = '';
+      foot.appendChild(benchButton('下载这个文件', true, () => {
+        window.location.href = dlHref(path);
+      }));
+      foot.appendChild(benchButton('关闭', false, () => closeModal('benchDialog')));
+    } catch (e) {
+      const body = $('benchDialogBody');
+      body.textContent = '';
+      body.appendChild(make('p', 'bench-empty', `读不到：${e.message || e}`));
+    }
   }
 
   async function buildJar() {
@@ -1974,6 +2234,7 @@
     };
     $('balance').onclick = () => openUsageDetail();
     $('usageDialogClose').onclick = () => closeModal('usageDialog');
+    $('benchDialogClose').onclick = () => closeModal('benchDialog');
     // 输入栏那行「上下文 X / 256K」也要能点开——之前只挂了 title，点了没反应
     $('ctxMeter').onclick = () => openUsageDetail();
     $('ctxMeter').onkeydown = (event) => {
