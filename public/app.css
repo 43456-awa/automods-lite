@@ -290,6 +290,24 @@
   --dot: var(--info);
 }
 
+/* ---------------- 编译日志 ---------------- */
+
+.build-log {
+  max-height: 320px;
+  overflow: auto;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
 /* ---------------- 构建环境徽章 ---------------- */
 
 /* 输入栏那行「上下文 X / 256K」现在可以点开详情，给个可点的样子 */
@@ -320,7 +338,13 @@
 }
 
 #buildEnv .model-switch-menu {
-  min-width: 220px;
+  /* 主站那份是 330px 宽、left:0 向右展开；构建徽章在输入栏右侧，
+   * 向右开会顶出屏幕，所以改成从右边缘往左展开，并把宽度钉死，
+   * 否则按钮文字会被压成竖排（「编译/当前/工程/的 jar」）。 */
+  left: auto;
+  right: 0;
+  width: 300px;
+  min-width: 300px;
 }
 
 #buildEnvMenu button {
@@ -332,7 +356,11 @@
   color: var(--text);
   font: inherit;
   font-size: 12.5px;
+  line-height: 1.4;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 

@@ -2640,7 +2640,11 @@ const server = http.createServer(async (req, res) => {
       const root = ensureProject(project);
       if (!root) return json(res, 400, { error: 'bad project' });
       const result = await runGradle(root, body.task || 'build', () => {});
-      json(res, result.ok ? 200 : 500, result);
+      if (result.ok) return json(res, 200, result);
+      /* 编译失败是「环境没配好」或「代码有问题」，不是服务器故障。
+       * 返回 500 的话前端只会显示一句 HTTP 500，把真正的原因
+       * （没找到 gradlew / 编译报错全文）全吞掉。 */
+      json(res, 400, { ...result, error: result.out || '编译没通过' });
       return;
     }
 

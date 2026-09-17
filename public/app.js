@@ -215,6 +215,7 @@
       if (wantChat) {
         selectChat(wantChat).then(() => {
           if (location.search.includes('usage=1')) openUsageDetail();
+          if (location.search.includes('buildenv=1')) openBuildEnvMenu();
         }).catch(() => toast('这个项目打不开', 'bad'));
       } else if (location.search.includes('usage=1')) {
         setTimeout(() => openUsageDetail(), 600);
@@ -1109,16 +1110,26 @@
       btn.disabled = true;
       btn.textContent = '编译中…';
     }
-    toast('开始编译，先看资产栏的日志');
+    toast('开始编译，第一次会下载依赖，可能要几分钟');
     try {
       const result = await api('/api/build', {
         method: 'POST',
         body: JSON.stringify({ project: state.project, task: 'build' }),
       });
-      toast(result.ok ? '编译通过，成品已发布' : '编译没过，看提示', result.ok ? 'good' : 'bad');
+      toast('编译通过，成品已发布', 'good');
       await loadAssets(true);
     } catch (e) {
-      toast(e.message || '编译失败', 'bad');
+      // 失败原因可能是「没找到 gradlew」，也可能是真正的编译报错。
+      // 只弹 toast 看不清，这里把完整输出摊开给人看。
+      const msg = String(e.message || '编译失败');
+      toast('编译没通过', 'bad');
+      openAnnouncement('编译没通过', `
+        <p>下面是从 Gradle 拿回来的原始输出，最后几行通常就是原因：</p>
+        <pre class="build-log">${esc(msg)}</pre>
+        <p>如果是「未找到 gradlew」，点输入栏的 <b>🔨 构建</b> 徽章 →
+           「怎么让它变成就绪？」。</p>
+      `);
+      $('announcementConfirm').textContent = '知道了';
     }
     if (btn) {
       btn.disabled = false;
@@ -1699,6 +1710,16 @@
     $('announcementConfirm').textContent = '知道了';
   }
 
+  /** 展开构建环境菜单（点徽章或 ?buildenv=1 都走这里） */
+  function openBuildEnvMenu() {
+    const box = $('buildEnv');
+    const menu = $('buildEnvMenu');
+    if (!box || !menu) return;
+    menu.hidden = false;
+    box.querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'true');
+    refreshBuildEnv();
+  }
+
   /** 上下文用量详情弹窗：照主站那张按类拆分的样式 */
   async function openUsageDetail() {
     // 没打开项目就用最近那个——之前直接弹个提示，很容易被当成「点了没反应」
@@ -2049,6 +2070,35 @@
     });
 
     // 构建环境徽章：菜单里可以直接编译或跳设置
+    // 注意不能走 bindSwitch —— 它会把 menu 清空再按 loader 重建，会把这里
+    // 手写的三个按钮冲掉；而且之前压根忘了绑展开，菜单一直 hidden。
+    (() => {
+      const box = $('buildEnv');
+      const trigger = box.querySelector('.model-switch-trigger');
+      const menu = $('buildEnvMenu');
+      const closeAll = () => {
+        document.querySelectorAll('.model-switch-menu').forEach((m) => { m.hidden = true; });
+        document.querySelectorAll('.model-switch-trigger')
+          .forEach((t) => t.setAttribute('aria-expanded', 'false'));
+      };
+      trigger.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const wasOpen = !menu.hidden;
+        closeAll();
+        if (wasOpen) return;
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        refreshBuildEnv(); // 打开时顺手刷新一次状态
+      };
+      document.addEventListener('click', (event) => {
+        if (!box.contains(event.target)) {
+          menu.hidden = true;
+          trigger.setAttribute('aria-expanded', 'false');
+        }
+      });
+    })();
+
     $('buildEnvCompile').onclick = () => {
       document.querySelector('#buildEnv .model-switch-menu').hidden = true;
       $('buildEnv').querySelector('.model-switch-trigger').setAttribute('aria-expanded', 'false');
