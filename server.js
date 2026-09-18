@@ -2713,8 +2713,15 @@ const server = http.createServer(async (req, res) => {
         json(res, 400, { error: '未配置 updateRepo（owner/repo）', local: LOCAL_VERSION });
         return;
       }
+      /* 源顺序很讲究：raw.githubusercontent 永远是最新的，但**国内直连不通**；
+       * jsDelivr 国内一般能过，代价是 @main 最长缓存 12 小时（版本号可能滞后半天）。
+       * 所以先试 raw（有代理的人立刻拿到最新），失败再退 jsDelivr（国内没代理的人
+       * 至少能拿到结果）。以前只写了 raw 两条，国内用户点「检查更新」直接报错、
+       * 弹窗根本不出来，自然也就没有「立即更新」按钮 —— 朋友那份就是这个症状。 */
       const urls = [
         `https://raw.githubusercontent.com/${repo}/main/update.json`,
+        `https://cdn.jsdelivr.net/gh/${repo}@main/update.json`,
+        `https://fastly.jsdelivr.net/gh/${repo}@main/update.json`,
         `https://raw.githubusercontent.com/${repo}/master/update.json`,
       ];
       let remote = null;
