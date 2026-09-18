@@ -1070,6 +1070,14 @@
       btn.onclick = () => { state.benchTab = key; mountBench(data); };
       tabs.appendChild(btn);
     });
+    // 「资产」标签下多一个上传入口：不想生图时可以直接拿本地图片当贴图
+    if (state.benchTab === 'entries' || !state.benchTab) {
+      const up = make('button', 'bench-upload', '⬆ 上传图片');
+      up.type = 'button';
+      up.title = '用本地图片当贴图，存进这个工程';
+      up.onclick = () => openTextureUpload();
+      tabs.appendChild(up);
+    }
     panel.appendChild(tabs);
 
     const body = make('div', 'bench-body');
@@ -1118,6 +1126,17 @@
           openBenchDetail(entry);
         }
       };
+      // 有贴图的格子右上角挂一个 × —— 直接在资产库这里删，不用点进详情
+      if (entry.hasIcon) {
+        const del = make('button', 'tile-del', '×');
+        del.type = 'button';
+        del.title = '删掉这张贴图';
+        del.onclick = (event) => {
+          event.stopPropagation();
+          deleteTexture(entry, () => loadAssets(true));
+        };
+        tile.appendChild(del);
+      }
       grid.appendChild(tile);
     });
     body.appendChild(grid);
@@ -1330,27 +1349,156 @@
         window.location.href = url;
       }) : null,
       entry.hasIcon ? benchButton('删除这张贴图', false, () => {
-        // 名字与所在 kind 都从 icon 路径里取，避免传错
-        const seg = (entry.icon || '').split('/');
-        const kind = seg[1] === 'block' ? 'block' : 'item';
-        const base = (seg[2] || '').replace(/\.png$/i, '');
-        if (!base) return toast('这张贴图无法定位', 'bad');
-        if (!window.confirm(`确定要删掉 ${kind}/${base}.png 吗？\n模型里若还引用它，运行时那块会变成紫黑缺资源。`)) return;
-        fetch(`/api/textures/${encodeURIComponent(state.project)}/${kind}/${encodeURIComponent(base)}`, { method: 'DELETE' })
-          .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
-          .then(({ ok, j }) => {
-            if (!ok) throw new Error(j.error || '删除失败');
-            toast('已删除', 'good');
-            closeModal('benchDialog');
-            return loadAssets(true);
-          })
-          .catch((e) => toast(e.message || '删除失败', 'bad'));
+        deleteTexture(entry, () => { closeModal('benchDialog'); loadAssets(true); });
       }) : null,
       benchButton('下载整包', false, () => {
         window.location.href = `/api/zip?project=${encodeURIComponent(state.project)}`;
       }),
       benchButton('关闭', false, () => closeModal('benchDialog')),
     ].filter(Boolean));
+  }
+
+  /** 贴图路径拆成 { kind, base }，删除和「以此为参考」都要用。
+   * 注意 entry.icon 是**完整相对路径**：
+   *   src/main/resources/assets/mymod/textures/item/glowing_block.png
+   * 所以不能按固定下标取（早先按 seg[1]/seg[2] 取会拿到 resources，
+   * 删除请求带着错名字，必然 404）。这里锚定 "textures" 那一段。 */
+  function textureOf(entry) {
+    const parts = String(entry.icon || '').split('/');
+    const i = parts.indexOf('textures');
+    if (i < 0 || !parts[i + 1]) return null;
+    const kind = parts[i + 1] === 'block' ? 'block' : 'item';
+    const base = String(parts[parts.length - 1] || '').replace(/\.png$/i, '');
+    if (!base) return null;
+    return { kind, base };
+  }
+
+  /** 删掉某个资产的贴图（预览台格子上那个 × 和详情弹窗共用） */
+  function deleteTexture(entry, after) {
+    const t = textureOf(entry);
+    if (!t) return toast('这张贴图无法定位', 'bad');
+    if (!window.confirm(`确定要删掉 ${t.kind}/${t.base}.png 吗？\n模型里若还引用它，运行时那块会变成紫黑缺资源。`)) return;
+    fetch(`/api/textures/${encodeURIComponent(state.project)}/${t.kind}/${encodeURIComponent(t.base)}`,
+      { method: 'DELETE' })
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) throw new Error(j.error || '删除失败');
+        toast('已删除', 'good');
+        if (after) after();
+      })
+      .catch((e) => toast(e.message || '删除失败', 'bad'));
+  }
+
+  /** 本地图片缩到目标边长，返回 dataURL。像素图风格：关掉抗锯齿 */
+  function scaleToDataURL(file, px) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = px > 0 ? px : Math.max(img.naturalWidth || img.width, 1);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = w;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, w, w);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('图片读不出'));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  /** 上传本地图片当贴图：填名字 + 选种类 + 选文件，缩到 imageScale 再存进工程 */
+  function openTextureUpload() {
+    if (!state.project) { toast('先开一个工程', 'bad'); return; }
+    let picked = null;
+    openBenchDialog('上传本地图片当贴图', (body) => {
+      body.appendChild(make('p', 'bench-section', '这张图会存进工程'));
+      const form = make('div', 'upload-form');
+
+      const nameRow = make('label', 'set-field');
+      nameRow.appendChild(make('span', null, '贴图标识（英文，别带空格）'));
+      const nameInput = make('input');
+      nameInput.type = 'text';
+      nameInput.placeholder = 'copper_sword';
+      nameInput.value = '';
+      nameRow.appendChild(nameInput);
+      form.appendChild(nameRow);
+
+      const kindRow = make('label', 'set-field');
+      kindRow.appendChild(make('span', null, '种类'));
+      const kindSel = make('select');
+      [['item', '物品贴图 textures/item/'], ['block', '方块贴图 textures/block/']]
+        .forEach(([v, label]) => {
+          const opt = make('option', null, label);
+          opt.value = v;
+          kindSel.appendChild(opt);
+        });
+      kindRow.appendChild(kindSel);
+      form.appendChild(kindRow);
+
+      const fileRow = make('label', 'set-field');
+      fileRow.appendChild(make('span', null, '图片文件'));
+      const fileInput = make('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/png,image/jpeg,image/webp';
+      fileRow.appendChild(fileInput);
+      form.appendChild(fileRow);
+
+      const prev = make('div', 'upload-preview');
+      prev.appendChild(make('small', null, '还没选图片'));
+      form.appendChild(prev);
+
+      fileInput.onchange = () => {
+        picked = (fileInput.files || [])[0] || null;
+        prev.textContent = '';
+        if (!picked) { prev.appendChild(make('small', null, '还没选图片')); return; }
+        const img = new Image();
+        img.src = URL.createObjectURL(picked);
+        img.alt = '预览';
+        prev.appendChild(img);
+        prev.appendChild(make('small', null,
+          `${picked.name} · ${size(picked.size)}`));
+        if (!nameInput.value) {
+          nameInput.value = picked.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+        }
+      };
+      body.appendChild(form);
+      setTimeout(() => nameInput.focus(), 30);
+    }, [
+      benchButton('上传并存进工程', true, async () => {
+        const nameInput = document.querySelector('#benchDialogBody input[type=text]');
+        const kindSel = document.querySelector('#benchDialogBody select');
+        const fileInput = document.querySelector('#benchDialogBody input[type=file]');
+        const name = String((nameInput && nameInput.value) || '').trim();
+        const kind = (kindSel && kindSel.value) === 'block' ? 'block' : 'item';
+        const file = (fileInput && fileInput.files || [])[0];
+        if (!name) return toast('先填贴图标识', 'bad');
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return toast('标识只能英文/数字/下划线/连字符', 'bad');
+        if (!file) return toast('先选一张图片', 'bad');
+        try {
+          toast('正在处理图片…');
+          // 缩放目标取自设置里的 imageScale；配置还没拉过就顺手拉一次
+          if (!state.cfg) {
+            try { state.cfg = await api('/api/config'); } catch { /* 用默认 64 */ }
+          }
+          const px = Number(state.cfg && state.cfg.imageScale) || 64;
+          const data = await scaleToDataURL(file, px);
+          const r = await fetch('/api/textures', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project: state.project, kind, name, data }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+          toast(`已存到 ${j.path}`, 'good');
+          closeModal('benchDialog');
+          loadAssets(true);
+        } catch (e) {
+          toast(e.message || '上传失败', 'bad');
+        }
+      }),
+      benchButton('取消', false, () => closeModal('benchDialog')),
+    ]);
   }
 
   /** 3×3 配方网格，材料和成品都查显示名 */

@@ -352,3 +352,66 @@
   font-size: 11.5px;
   color: var(--text-muted);
 }
+
+/* ---------------- 左栏放大（2026-09-18） ----------------
+   主人反馈左上角太小。左栏整体加宽、头部加高、表单字号上调一档，
+   让「贴图工坊」这块和右侧预览的视觉重量对得上。 */
+
+.tex-side {
+  width: 360px;            /* 原 300px */
+}
+
+.tex-side > header {
+  height: 64px;            /* 原 52px */
+  padding: 0 16px;         /* 原 0 12px */
+  gap: 12px;
+}
+
+.tex-side > header b {
+  font-size: 17px;         /* 原继承默认，视觉上偏小 */
+  letter-spacing: .01em;
+}
+
+.tex-side > header .learn-back {
+  width: 30px;
+  height: 30px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.tex-form {
+  padding: 16px;           /* 原 12px */
+}
+
+/* 表单标签与控件整体上调一档，避免左栏加宽后显得空 */
+.tex-form .set-field > span {
+  font-size: 12.5px;
+}
+
+.tex-form .set-field select,
+.tex-form .set-field input {
+  font-size: 14px;
+  padding: 9px 11px;
+}
+
+.tex-form .set-field textarea {
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+.tex-modes .tex-mode {
+  font-size: 13.5px;
+  padding: 8px 12px;
+}
+
+.tex-go {
+  padding: 12px;
+  font-size: 15px;
+}
+
+/* 窄屏还是让它回到整宽，别把预览挤没 */
+@media (max-width: 900px) {
+  .tex-side {
+    width: 300px;
+  }
+}
