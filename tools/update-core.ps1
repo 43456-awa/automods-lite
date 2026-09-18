@@ -30,6 +30,12 @@ $fileBases = @(
   "https://fastly.jsdelivr.net/gh/$repo@$branch/",
   "https://raw.githubusercontent.com/$repo/$branch/"
 )
+# .bat 的源顺序要反过来：jsDelivr 一定 403，先试它纯属浪费
+$batBases = @(
+  "https://raw.githubusercontent.com/$repo/$branch/",
+  "https://cdn.jsdelivr.net/gh/$repo@$branch/",
+  "https://fastly.jsdelivr.net/gh/$repo@$branch/"
+)
 
 $zipUrls = @(
   "https://codeload.github.com/$repo/zip/refs/heads/$branch",
@@ -66,10 +72,14 @@ function Place-File($srcPath, $rel) {
 
 # 从各个源逐文件拉一个文件到 $dst，成功返回 $true
 function Fetch-File($rel, $dst) {
-  foreach ($base in $fileBases) {
+  $bases = $fileBases
+  if ($rel -like '*.bat') { $bases = $batBases }
+  # 路径里万一带非 ASCII（比如中文名文件），URL 段要转义
+  $enc = (($rel -split '/') | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
+  foreach ($base in $bases) {
     $t = Join-Path $dl ([guid]::NewGuid().ToString('N'))
     try {
-      Invoke-WebRequest -Uri ($base + $rel) -OutFile $t -TimeoutSec 60 -UseBasicParsing
+      Invoke-WebRequest -Uri ($base + $enc) -OutFile $t -TimeoutSec 60 -UseBasicParsing
       if ((Get-Item $t).Length -eq 0) { continue }
       Copy-Item $t $dst -Force
       return $true
@@ -123,21 +133,25 @@ if ($src) {
 } else {
   # 整包源都不通（国内很常见）→ 退到逐文件
   Write-Host '  整包源都不通，改用逐文件方式（从 jsDelivr 拉）…'
-  $raw = $null
+  $manifest = $null
   foreach ($base in $fileBases) {
     try {
-      $raw = Invoke-RestMethod -Uri ($base + $manifestRel) -TimeoutSec 60 -UseBasicParsing
+      # 必须自己按 UTF-8 解：PS 5.1 的 Invoke-RestMethod 遇到没写 charset 的
+      # JSON 会按 ISO-8859-1 解，中文全变乱码（实测把中文文件名解成非法路径，
+      # Test-Path 直接报「路径中具有非法字符」）
+      $resp = Invoke-WebRequest -Uri ($base + $manifestRel) -TimeoutSec 60 -UseBasicParsing
+      $json = [System.Text.Encoding]::UTF8.GetString($resp.RawContentStream.ToArray())
+      $manifest = $json | ConvertFrom-Json
       break
     } catch { }
   }
-  if (-not $raw) {
+  if (-not $manifest) {
     Write-Host ''
     Write-Host '[错误] 连更新清单都拉不到。'
     Write-Host '       开着代理/VPN 再试一次，或者让群主直接发你一份整包解压覆盖。'
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     exit 1
   }
-  $manifest = $raw
   Write-Host ''
   Write-Host '正在更新（逐文件）：'
   foreach ($rel in $manifest.files) {
