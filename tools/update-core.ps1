@@ -123,6 +123,11 @@ if ($src) {
   Write-Host ''
   Write-Host '正在更新（整包）：'
   foreach ($rel in $manifest.files) {
+    if ($rel -notmatch '^[A-Za-z0-9._\-/]+$') {
+      $skipped += $rel
+      Write-Host ("  " + $rel + " 路径不合法，跳过（清单可能来自 CDN 旧缓存）")
+      continue
+    }
     $s = Join-Path $src ($rel -replace '/', '\')
     if (-not (Test-Path $s)) { continue }
     $r = Place-File $s $rel
@@ -155,6 +160,15 @@ if ($src) {
   Write-Host ''
   Write-Host '正在更新（逐文件）：'
   foreach ($rel in $manifest.files) {
+    # 路径必须干净。踩过：git ls-files 默认把中文名转义成 \344\272\244 这种串，
+    # 拿去当路径会报「路径中具有非法字符」；而 jsDelivr 的 @main 缓存最长 12h，
+    # 就算仓库里修好了，旧清单还会被发出来一段时间。所以坏路径直接跳过，
+    # 不让它把整次更新带崩。
+    if ($rel -notmatch '^[A-Za-z0-9._\-/]+$') {
+      $skipped += $rel
+      Write-Host ("  " + $rel + " 路径不合法，跳过（清单可能来自 CDN 旧缓存）")
+      continue
+    }
     $dst = Join-Path $root ($rel -replace '/', '\')
     $dir = Split-Path $dst -Parent
     if ($dir -and -not (Test-Path $dir)) {
