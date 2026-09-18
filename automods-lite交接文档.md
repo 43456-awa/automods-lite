@@ -336,6 +336,50 @@ https://raw.githubusercontent.com/43456-awa/automods-lite/main/fix-update.bat
 > 教训：**给非技术用户的自动更新脚本，绝不能让它下载它自己。**
 > cmd.exe 按字节偏移解析 `.bat`，自我覆盖 = 偏移错位 = 文件错位写坏。
 
+### ⚠️ 更新链路在国内的死结（2026-09-18 实测，两个真 bug）
+
+朋友那份点完 `fix-update.bat` 再点 `update.bat`，**还是 0.5.0、页面也没有更新按钮**。
+查出两处，都在「国内网络」上：
+
+**1. `/api/update` 只试 `raw.githubusercontent.com`** —— 国内直连不通，
+8 秒超时后直接返回「拉取远程版本失败」，**弹窗根本不出现**，
+自然也就没有「立即更新」按钮。
+→ 已改成 raw → jsDelivr → fastly → raw(master) 依次回退：有代理的人先拿到最新，
+没代理的人至少能拿到结果（jsDelivr `@main` 有最长 12h 缓存，版本号可能滞后半天）。
+
+**2. `update-core.ps1` 的三个 zip 源全是死路**：
+`cdn.jsdelivr.net/.../@main.zip` 实测 **400**（jsDelivr 已下线整包接口），
+fastly 同理，只剩 `github.com/archive/...` 而国内常常不通 ——
+所以朋友那次更新**一个字节都没更新**，脚本却打了「[完成] 代码已更新」。
+
+→ 新增 `tools/manifest.json`（从 `git -c core.quotepath=false ls-files` 生成，
+只列会覆盖的 ASCII 路径代码文件；`config.json` / `workspace/` / `chats/` /
+`usage.json` 永不出现）。`update-core.ps1` 现在两条路：
+
+| 路 | 源 | 说明 |
+|---|---|---|
+| 整包（先试） | `codeload.github.com` → `github.com/archive` | 快，国内常常不通 |
+| 逐文件（兜底） | **jsDelivr** → fastly → raw | 国内基本能过，是真正管用的那条 |
+
+`.bat` 的源顺序反过来（raw 优先）：**jsDelivr 对 `.bat` 一律 403**，先试纯属浪费；
+拉不到就保留本地那份，不会弄坏文件。收尾会把实际 `package.json` 版本和清单版本
+对一下，避免又一次「看起来成功」。
+
+**实测**（`git archive` 还原 0.4.0 + 清空整包源强制走逐文件）：
+49 个文件更新、版本 0.5.1、`server.js` 含 `streamClosed`、`app.js` 含「立即更新」×3、
+`vendor/` 10 文件完好、`config.json` 未动、exit=0。
+
+**踩过的两个小坑**：
+- `git ls-files` 默认把中文名转义成 `\344\272\244` 这种串，拿去当路径会报
+  「路径中具有非法字符」，而 `ErrorActionPreference = 'Stop'` 会让整个脚本当场退出
+  → 现在路径不匹配 `^[A-Za-z0-9._\-/]+$` 的直接跳过并记一笔
+- PS 5.1 的 `Invoke-RestMethod` 对没写 charset 的 JSON 按 ISO-8859-1 解，
+  中文全变乱码 → 改成 `Invoke-WebRequest` + `UTF8.GetString(RawContentStream)`
+
+**最稳的交付方式仍然是「直接发整包」**：`git archive --format=zip -o <文件> HEAD`
+（61 文件 / 约 313 KB，天然不含 `config.json` / `workspace/` / `chats/`），
+微信/QQ 传过去解压覆盖即可，完全不依赖对方的网络。
+
 ### ⚠️ CDN 缓存会拿到旧脚本（更新静默失效，2026-09-17 实测）
 
 下载 `tools/update-core.ps1` 时**别只信 `@main`**：jsDelivr 的 `@main`
